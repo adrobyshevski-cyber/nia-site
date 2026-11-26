@@ -92,7 +92,18 @@ npx wrangler deployments list
 npx wrangler tail            # логи, если заявка не дошла
 ```
 
-Автодеплой по пушу настраивается в кабинете: Worker → Settings → Builds → Connect Git (`adrobyshevski-cyber/nia-site`, ветка `main`, build command пустой, deploy command `npx wrangler deploy`). Через API это не подключается — нужен GitHub App.
+Автодеплой по пушу — два варианта на выбор.
+
+**GitHub Actions (работает сразу после вставки секретов).** В репозитории лежит `.github/workflows/deploy.yml`: на каждый пуш в `main` прогоняет `scripts/check-lead.mjs` и `scripts/check-links.py`, затем `wrangler deploy`. Нужны секреты репозитория (Settings → Secrets and variables → Actions):
+
+| Секрет | Значение |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | токен с правом **Workers Scripts: Edit** (dash.cloudflare.com/profile/api-tokens) |
+| `CLOUDFLARE_ACCOUNT_ID` | `9c43f65513791f4aaf18522bf44c7d28` |
+
+Пока секретов нет, job `check` всё равно выполняется, а деплой пропускается с notice — красных прогонов не будет.
+
+**Cloudflare Workers Builds.** Worker → Settings → Builds → Connect Git (`adrobyshevski-cyber/nia-site`, ветка `main`, deploy command `npx wrangler deploy`). Требует установки Cloudflare GitHub App; через API не подключается — OAuth-токен wrangler не имеет доступа к `builds` API.
 
 Важно: `wrangler.jsonc` содержит `workers_dev: false` — сайт доступен только на своём домене, чтобы копия на `*.workers.dev` не попала в поиск.
 
