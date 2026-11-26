@@ -1,6 +1,6 @@
 # NIA — Narrative Intelligence Agency
 
-Сайт [narrativeintelligence.ru](https://narrativeintelligence.ru). Хостинг — **Cloudflare Workers Static Assets** (не Pages): статика раздаётся из `public/`, один Worker перехватывает `/api/*` для приёма заявок. Сборки нет.
+Сайт [narrativeintelligence.ru](https://narrativeintelligence.ru). Хостинг — **Cloudflare Workers Static Assets** (не Pages): статика раздаётся из `public/`, один Worker перехватывает запросы для приёма заявок и добавляет заголовки. Сборки нет.
 
 Рабочее имя Worker'а — `broad-paper-a8b7`, к нему привязаны домены `narrativeintelligence.ru` и `www`. Имя менять нельзя: отвалится домен.
 
@@ -15,6 +15,8 @@ public/                 ← корень ассетов, отдаётся как
   lead.js               обработчик форм заявок (прогрессивное улучшение)
   _redirects            редиректы (поддерживаются Workers Assets)
   robots.txt
+  sitemap.xml
+  og/                   OG-картинки 1200×630 (agency, audit, brand, insights)
   audit/index.html      Narrative Audit + форма заявки на аудит
   brand/index.html      Dissolved Brand
   insights/
@@ -28,7 +30,8 @@ worker.js               fetch-хендлер: /api/* → функции, ост�
 lib/lead.js             приём заявки: валидация + уведомление в Telegram
 wrangler.jsonc          конфигурация Worker'а и ассетов
 scripts/check-lead.mjs  тесты обработчика (без сети)
-scripts/check-links.py  ссылки, редиректы, формы, дубли id, контракт клиент↔сервер
+scripts/check-links.py  ссылки, редиректы, формы, canonical/OG/sitemap, дубли id
+scripts/make-og.py      перегенерация OG-картинок (Pillow)
 _archive/               исходные zip-архивы (не деплоится, в .gitignore)
 ```
 
@@ -92,6 +95,28 @@ npx wrangler tail            # логи, если заявка не дошла
 Автодеплой по пушу настраивается в кабинете: Worker → Settings → Builds → Connect Git (`adrobyshevski-cyber/nia-site`, ветка `main`, build command пустой, deploy command `npx wrangler deploy`). Через API это не подключается — нужен GitHub App.
 
 Важно: `wrangler.jsonc` содержит `workers_dev: false` — сайт доступен только на своём домене, чтобы копия на `*.workers.dev` не попала в поиск.
+
+## Заголовки, кэш и SEO
+
+`_headers` в Workers Assets не поддерживается, поэтому заголовки ставит `worker.js`:
+
+- `Strict-Transport-Security`, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`,
+  `Permissions-Policy`, `Cross-Origin-Opener-Policy`
+- `Content-Security-Policy`: `script-src/style-src 'self' 'unsafe-inline'` (на страницах есть инлайновые
+  стили и скрипты), `connect-src` и `form-action` разрешают `api.web3forms.com`,
+  `base-uri 'none'`, `object-src 'none'`, `frame-ancestors 'self'`.
+  `default-src` и `frame-src` не заданы намеренно: модалка с примером отчёта на `/audit/` — iframe `srcdoc`,
+  а ограничение `frame-src` ломает `about:srcdoc` в части браузеров
+- `Cache-Control`: HTML/CSS/JS — `no-cache` (в именах файлов нет хешей, иначе после правки посетители
+  получат старую версию), картинки — неделя, `sitemap.xml`/`robots.txt` — час
+
+Важный нюанс: в `wrangler.jsonc` стоит `run_worker_first: true`. При `["/api/*"]` Cloudflare отдаёт
+ассеты **минуя Worker**, и заголовки выше просто не применяются. Цена — инвокация Worker на каждый
+запрос (для сайта такого размера несущественно).
+
+SEO-обвязка: `canonical` на всех индексируемых страницах, OG/Twitter-теги с картинками из `public/og/`,
+`sitemap.xml` (7 URL) + `Sitemap:` в `robots.txt`. Незапущенные `practices/culture|economics|lab|strategy`
+помечены `noindex, follow` и в sitemap не входят — иначе поисковик ранжировал бы заглушки как основные страницы.
 
 ## Особенности Workers Assets (в отличие от Pages)
 

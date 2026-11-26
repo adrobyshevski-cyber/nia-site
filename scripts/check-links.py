@@ -131,11 +131,48 @@ if os.path.exists(articles):
         if resolve(article["url"])[0] == "missing":
             fail(f"articles.json: {article['url']} не существует")
 
+# --- SEO: sitemap, canonical, OG -------------------------------------------
+sitemap = os.path.join(ROOT, "sitemap.xml")
+if os.path.exists(sitemap):
+    xml = open(sitemap, encoding="utf-8").read()
+    locs = re.findall(r"<loc>([^<]+)</loc>", xml)
+    if not locs:
+        fail("sitemap.xml: нет ни одного <loc>")
+    for loc in locs:
+        path = urlparse(loc).path or "/"
+        if resolve(path)[0] != "file":
+            fail(f"sitemap.xml: {loc} не существует на сайте")
+    if "/api/" in xml:
+        fail("sitemap.xml: в карту попал /api/")
+    robots_txt = open(os.path.join(ROOT, "robots.txt"), encoding="utf-8").read()
+    if "Sitemap:" not in robots_txt:
+        fail("robots.txt: нет ссылки на sitemap")
+
+for page in pages:
+    rel = os.path.relpath(page, ROOT).replace(os.sep, "/")
+    text = open(page, encoding="utf-8").read()
+    if rel in ("practices/audit.html", "practices/brand.html", "404.html"):
+        continue  # заглушки-редиректы и страница ошибки
+    if 'rel="canonical"' not in text:
+        fail(f"{rel}: нет canonical")
+    if 'property="og:image"' not in text:
+        fail(f"{rel}: нет og:image")
+    noindex = re.search(r'<meta[^>]*name="robots"[^>]*noindex', text)
+    url = "/" if rel == "index.html" else "/" + rel.replace("index.html", "")
+    if noindex and os.path.exists(sitemap) and url in open(sitemap, encoding="utf-8").read():
+        fail(f"{rel}: страница с noindex присутствует в sitemap.xml")
+    if not noindex and os.path.exists(sitemap) and url not in open(sitemap, encoding="utf-8").read():
+        fail(f"{rel}: индексируемой страницы нет в sitemap.xml")
+    for image in re.findall(r'property="og:image" content="([^"]+)"', text):
+        image_path = urlparse(image).path
+        if not os.path.isfile(os.path.join(ROOT, image_path.lstrip("/"))):
+            fail(f"{rel}: og:image {image} не найден в репозитории")
+
 # --- обязательные файлы -----------------------------------------------------
 for required in ("lib/lead.js", "worker.js", "wrangler.jsonc"):
     if not os.path.exists(os.path.join(REPO, required)):
         fail(f"нет файла {required}")
-for required in ("404.html", "lead.js", "_redirects", "robots.txt", "index.html"):
+for required in ("404.html", "lead.js", "_redirects", "robots.txt", "sitemap.xml", "index.html"):
     if not os.path.exists(os.path.join(ROOT, required)):
         fail(f"нет файла public/{required}")
 
