@@ -1,0 +1,9 @@
+# Скопируйте в .dev.vars для локальной разработки: npx wrangler pages dev .
+# В продакшене те же имена задаются в Cloudflare Pages → Settings → Environment variables.
+
+# Ключ доступа Web3Forms (https://web3forms.com) — заявки приходят на привязанный к ключу email.
+WEB3FORMS_KEY=
+
+# Telegram-уведомления: бот создаётся через @BotFather, chat_id — ваш личный или группа.
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
