@@ -241,6 +241,7 @@
       const data = await api(`/studio/api/article?slug=${encodeURIComponent(slug)}`);
       const parsed = parseRaw(data.raw);
       current = { slug, raw: data.raw };
+      clearImportNote();
       setValues(parsed.frontMatter, parsed.body);
       dirty = false;
       say(`Открыта «${parsed.frontMatter.title || slug}»`);
@@ -253,6 +254,7 @@
   const newArticle = () => {
     if (dirty && !confirm("Несохранённые изменения будут потеряны. Продолжить?")) return;
     current = null;
+    clearImportNote();
     const today = new Date().toISOString().slice(0, 10);
     setValues(
       {
@@ -325,21 +327,114 @@
     }
   };
 
-  const slugify = (text) =>
-    text
-      .toLowerCase()
-      .replace(/[а-яё]/g, (char) => {
-        const map = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "c", ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya" };
-        return map[char] ?? "";
-      })
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60);
+  const slugify = (window.NiaImport && window.NiaImport.slugify) || ((text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+
+  // ---------- импорт из файла ----------
+  const dropzone = document.createElement("div");
+  dropzone.className = "dropzone";
+  dropzone.textContent = "Отпустите файл — .md или .txt";
+  document.body.append(dropzone);
+
+  const sourceLabel = { file: "из файла", passport: "из паспорта", heuristic: "авто", default: "по умолчанию" };
+
+  const clearImportNote = () => {
+    $("import-note").hidden = true;
+    $("import-note").innerHTML = "";
+    for (const name of fields) $(name).classList.remove("auto-filled");
+  };
+
+  const renderImportNote = (result, fileName) => {
+    const note = $("import-note");
+    const chips = [];
+    for (const name of fields) {
+      const source = result.sources[name];
+      if (!source) continue;
+      const cls = source === "file" || source === "passport" ? "file" : "auto";
+      chips.push(`<span class="chip ${cls}">${name}: ${sourceLabel[source] || source}</span>`);
+    }
+
+    const errors = result.warnings.filter((w) => w.level === "error");
+    const warns = result.warnings.filter((w) => w.level !== "error");
+
+    note.innerHTML =
+      '<button class="close" type="button" title="Скрыть">×</button>' +
+      `<h3>Импортировано: ${fileName || "файл"} · ${result.stats.words} слов · ~${result.stats.minutes} мин</h3>` +
+      `<div>Slug предложен: <code>${$("slug").value || "—"}</code>. Поля с пометкой «авто» и «по умолчанию» стоит проверить.</div>` +
+      (chips.length ? `<div class="chips">${chips.join("")}</div>` : "") +
+      (errors.length ? `<ul class="error">${errors.map((w) => `<li>${w.text}</li>`).join("")}</ul>` : "") +
+      (warns.length ? `<ul class="warn">${warns.map((w) => `<li>${w.text}</li>`).join("")}</ul>` : "");
+    note.hidden = false;
+
+    note.querySelector(".close").addEventListener("click", () => {
+      note.hidden = true;
+    });
+
+    for (const name of fields) {
+      const source = result.sources[name];
+      $(name).classList.toggle("auto-filled", source === "heuristic" || source === "default");
+    }
+  };
+
+  const importFile = async (file) => {
+    if (!file) return;
+    if (!/\.(md|markdown|txt)$/i.test(file.name)) {
+      say("Поддерживаются .md и .txt. Для .docx сохраните файл как Markdown или вставьте текст вручную.", "err");
+      return;
+    }
+    if (dirty && !confirm("Несохранённые изменения будут потеряны. Продолжить импорт?")) return;
+
+    say(`Читаем ${file.name}…`);
+    try {
+      const text = await file.text();
+      const result = window.NiaImport.parseDocument(text, {
+        fileName: file.name,
+        existingSlugs: articles.map((a) => a.slug),
+      });
+      current = null;
+      setValues(result.frontMatter, result.body);
+      dirty = true;
+      renderImportNote(result, file.name);
+      renderList();
+      say(`Импортировано: ${result.stats.words} слов — проверьте поля и сохраните`, "ok");
+      $("title").focus();
+    } catch (error) {
+      say(`Не удалось разобрать файл: ${error.message}`, "err");
+    }
+  };
+
+  $("import").addEventListener("click", () => $("file").click());
+  $("file").addEventListener("change", (event) => {
+    importFile(event.target.files && event.target.files[0]);
+    event.target.value = "";
+  });
+
+  let dragDepth = 0;
+  document.addEventListener("dragenter", (event) => {
+    if (!event.dataTransfer || !Array.from(event.dataTransfer.types || []).includes("Files")) return;
+    dragDepth += 1;
+    dropzone.classList.add("on");
+  });
+  document.addEventListener("dragover", (event) => {
+    if (dropzone.classList.contains("on")) event.preventDefault();
+  });
+  document.addEventListener("dragleave", () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dropzone.classList.remove("on");
+  });
+  document.addEventListener("drop", (event) => {
+    if (!dropzone.classList.contains("on")) return;
+    event.preventDefault();
+    dragDepth = 0;
+    dropzone.classList.remove("on");
+    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    importFile(file);
+  });
 
   // ---------- события ----------
   for (const id of [...fields, "body", "featured", "draft"]) {
     $(id).addEventListener("input", () => {
       markDirty();
+      $(id).classList.remove("auto-filled");
       if (id === "body") updatePreview();
       if (id === "slug" || id === "date" || id === "practice") updateMeta();
       if (id === "title") {

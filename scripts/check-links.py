@@ -179,7 +179,7 @@ studio_dir = os.path.join(ROOT, "studio")
 if not os.path.isdir(studio_dir):
     fail("нет каталога public/studio")
 else:
-    for name in ("index.html", "studio.js", "studio.css"):
+    for name in ("index.html", "studio.js", "studio.css", "import.js"):
         path = os.path.join(studio_dir, name)
         if not os.path.exists(path):
             fail(f"нет файла public/studio/{name}")

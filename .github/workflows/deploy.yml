@@ -39,6 +39,9 @@ jobs:
       - name: Тесты /studio (пароль, сессия, маршруты)
         run: node scripts/check-studio.mjs
 
+      - name: Тесты импорта статьи из файла
+        run: node scripts/check-import.mjs
+
       - name: Ссылки, формы, canonical/OG/sitemap
         run: python scripts/check-links.py
 
