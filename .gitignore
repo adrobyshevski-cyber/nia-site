@@ -1,0 +1,18 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/
+
+# Build tooling
+node_modules/
+.wrangler/
+dist/
+
+# Local archives / backups (deployed files live at repo root)
+_archive/
+
+# Logs
+*.log

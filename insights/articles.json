@@ -1,0 +1,32 @@
+[
+  {
+    "title": "Narrative Debt: как компании накапливают смысловой долг",
+    "slug": "narrative-debt",
+    "description": "Понятие смыслового долга как инструмента поиска накопленных противоречий между обещаниями, предложением и опытом.",
+    "category": "Narrative Economics",
+    "date": "2026-11-20",
+    "author": "NIA Editorial",
+    "minutes": 3,
+    "url": "/insights/narrative-debt/"
+  },
+  {
+    "title": "Narrative Capital: почему ценность бизнеса определяется не только продуктом",
+    "slug": "narrative-capital",
+    "description": "О том, как связать воспринимаемую ценность, доверие и экономические решения — без подмены исследовательской гипотезы готовой финансовой метрикой.",
+    "category": "Narrative Economics",
+    "date": "2026-11-20",
+    "author": "NIA Editorial",
+    "minutes": 3,
+    "url": "/insights/narrative-capital/"
+  },
+  {
+    "title": "Dissolved Branding: когда клиенты становятся соавторами бренда",
+    "slug": "dissolved-branding",
+    "description": "Почему участие аудитории требует не только контента, но и правил, продуктовой обратной связи и инфраструктуры управления.",
+    "category": "Brands & Markets",
+    "date": "2026-11-20",
+    "author": "NIA Editorial",
+    "minutes": 3,
+    "url": "/insights/dissolved-branding/"
+  }
+]
