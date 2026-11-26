@@ -2,7 +2,9 @@
 
 Документ для того, кто продолжит работу: что где лежит, как деплоится, что уже проверено, где грабли. Обновляется при каждом значимом изменении.
 
-Последнее обновление: **2026-11-26**, коммит `5afb571`, версия Worker'а `5d2ecbeb`.
+Последнее обновление: **2026-11-26**, версия Worker'а `9ab85472`.
+
+Ротация `CLOUDFLARE_API_TOKEN`: **2026-11-26** (Roll в dash). Предыдущее значение отозвано и отвечает `401`.
 
 ---
 
@@ -115,7 +117,7 @@ npx wrangler deployments list
 |---|---|---|
 | Worker secrets | `TELEGRAM_BOT_TOKEN` | уведомления о заявках |
 | Worker secrets | `TELEGRAM_CHAT_ID` | `360726431`, личный чат `@droal1111` |
-| GitHub Actions | `CLOUDFLARE_API_TOKEN` | деплой из CI (Workers Scripts: Edit) |
+| GitHub Actions | `CLOUDFLARE_API_TOKEN` | деплой из CI (`Account · Workers Scripts · Edit`), ротирован 2026-11-26 |
 | GitHub Actions | `CLOUDFLARE_ACCOUNT_ID` | `9c43f65513791f4aaf18522bf44c7d28` |
 | `public/lead.js` | `WEB3FORMS_KEY` | email-канал (публичный) |
 
@@ -157,7 +159,7 @@ npx wrangler secret put TELEGRAM_BOT_TOKEN
 |---|---|
 | Фаза 0: MD как источник правды | **готово** (`3dd2d1a`) |
 | Автодеплой по пушу | **готово** (`5afb571`) |
-| Перевыпустить `CLOUDFLARE_API_TOKEN` | ждёт владельца (токен был в переписке) |
+| Перевыпустить `CLOUDFLARE_API_TOKEN` | **готово** 2026-11-26: Roll, секрет обновлён, CI проверен |
 | Фаза 1: админка `/studio` — пароль, список статей, редактор с превью | не начато |
 | Фаза 2: публикация из админки — коммит через GitHub API → CI | не начато |
 | RSS для insights | не начато |
