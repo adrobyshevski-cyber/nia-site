@@ -142,7 +142,7 @@ npx wrangler dev        # http://localhost:8788 — статика + /api/lead
 ```bash
 python scripts/build-insights.py            # пересобрать insights из Markdown
 node scripts/check-lead.mjs                 # 16 сценариев: валидация, honeypot, роутинг, каналы
-node scripts/check-studio.mjs               # 18 сценариев: front matter, пароль, сессия, маршруты
+node scripts/check-studio.mjs               # 19 сценариев: front matter, пароль, сессия, Origin, маршруты
 python scripts/check-links.py                # ссылки, редиректы, формы, canonical/OG/sitemap, дубли id
 git diff --exit-code -- public              # проверка, что результаты сборки закоммичены
 ```

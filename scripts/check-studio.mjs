@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 import { handleStudio } from "../lib/studio.js";
 import { parseArticleFile, stringifyArticleFile, validateFrontMatter } from "../lib/frontmatter.js";
-import { checkRateLimit, registerFailure, verifyPassword } from "../lib/auth.js";
+import { checkRateLimit, isSameOrigin, registerFailure, verifyPassword } from "../lib/auth.js";
 
 const PASSWORD = "test-password-123";
 const SALT = Buffer.from("0123456789abcdef");
@@ -199,6 +199,16 @@ await check("лимит попыток входа срабатывает", () =>
   const limit = checkRateLimit(ip, Date.now());
   assert(!limit.allowed, "после 8 попыток должен быть блок");
   assert(limit.retryAfter > 0, "должен быть retryAfter");
+});
+
+await check("Origin: свой домен проходит, чужой — нет", () => {
+  const make = (origin) =>
+    new Request("https://example.com/studio/login", { method: "POST", headers: origin ? { origin } : {} });
+  assert(isSameOrigin(make("https://narrativeintelligence.ru")), "свой домен должен проходить");
+  assert(isSameOrigin(make("https://www.narrativeintelligence.ru")), "www должен проходить");
+  assert(isSameOrigin(make("https://example.com")), "хост запроса должен проходить");
+  assert(!isSameOrigin(make("https://evil.example")), "чужой домен должен отклоняться");
+  assert(isSameOrigin(make(null)), "запрос без Origin (curl) не блокируем");
 });
 
 console.log("\nмаршруты");
