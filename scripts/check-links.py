@@ -12,7 +12,8 @@ import re
 import sys
 from urllib.parse import unquote, urlparse
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.join(REPO, "public")
 problems = []
 
 
@@ -131,9 +132,12 @@ if os.path.exists(articles):
             fail(f"articles.json: {article['url']} не существует")
 
 # --- обязательные файлы -----------------------------------------------------
-for required in ("functions/api/lead.js", "lead.js", "_redirects", "robots.txt"):
-    if not os.path.exists(os.path.join(ROOT, required)):
+for required in ("lib/lead.js", "worker.js", "wrangler.jsonc"):
+    if not os.path.exists(os.path.join(REPO, required)):
         fail(f"нет файла {required}")
+for required in ("404.html", "lead.js", "_redirects", "robots.txt", "index.html"):
+    if not os.path.exists(os.path.join(ROOT, required)):
+        fail(f"нет файла public/{required}")
 
 # --- функции и клиент -------------------------------------------------------
 lead_js = os.path.join(ROOT, "lead.js")
@@ -149,13 +153,31 @@ if os.path.exists(lead_js):
     if re.search(r'WEB3FORMS_KEY = ""', client):
         fail("lead.js: WEB3FORMS_KEY не заполнен — email-канал молча не работает")
 
-function_js = os.path.join(ROOT, "functions", "api", "lead.js")
-if os.path.exists(function_js):
-    server = open(function_js, encoding="utf-8").read()
+lead_lib = os.path.join(REPO, "lib", "lead.js")
+if os.path.exists(lead_lib):
+    server = open(lead_lib, encoding="utf-8").read()
     if "api.web3forms.com" in server:
-        fail("functions/api/lead.js: Web3Forms нельзя вызывать с сервера (бесплатный тариф блокирует)")
+        fail("lib/lead.js: Web3Forms нельзя вызывать с сервера (бесплатный тариф блокирует)")
     if "api.telegram.org" not in server:
-        fail("functions/api/lead.js: нет отправки в Telegram")
+        fail("lib/lead.js: нет отправки в Telegram")
+
+worker_path = os.path.join(REPO, "worker.js")
+if os.path.exists(worker_path):
+    w = open(worker_path, encoding="utf-8").read()
+    if "/api/lead" not in w:
+        fail("worker.js: нет маршрута /api/lead")
+    if "ASSETS.fetch" not in w:
+        fail("worker.js: не раздаёт статику через env.ASSETS.fetch")
+
+config_path = os.path.join(REPO, "wrangler.jsonc")
+if os.path.exists(config_path):
+    c = open(config_path, encoding="utf-8").read()
+    if '"run_worker_first"' not in c:
+        fail("wrangler.jsonc: без run_worker_first Worker не перехватит /api/*")
+    if "404-page" not in c:
+        fail("wrangler.jsonc: not_found_handling должен быть 404-page")
+    if '"directory": "./public"' not in c:
+        fail("wrangler.jsonc: ассеты должны раздаваться из корня репозитория")
 
 print(f"страниц: {len(pages)}, внутренних ссылок проверено: {checked_links}, редиректов: {len(rules)}")
 if problems:

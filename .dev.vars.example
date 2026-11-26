@@ -1,5 +1,5 @@
-# Скопируйте в .dev.vars для локальной разработки: npx wrangler pages dev .
-# В продакшене те же имена задаются в Cloudflare Pages → Settings → Environment variables.
+# Скопируйте в .dev.vars для локальной разработки: npx wrangler dev
+# В продакшене — npx wrangler secret put <ИМЯ>
 
 # Telegram-уведомления: бот создаётся через @BotFather, chat_id — ваш личный или группы
 # (у групп он отрицательный, вида -1001234567890).

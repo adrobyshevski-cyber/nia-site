@@ -1,0 +1,19 @@
+# Файлы, которые не должны попадать в статические ассеты Worker'а.
+# Синтаксис как в .gitignore. Сами ассеты лежат в корне репозитория.
+
+/.git
+/.gitignore
+/.gitattributes
+/.assetsignore
+/_archive
+/node_modules
+/.wrangler
+/scripts
+/lib
+/worker.js
+/wrangler.jsonc
+/package.json
+/package-lock.json
+/README.md
+/.dev.vars
+/.dev.vars.example

@@ -1,96 +1,110 @@
 # NIA — Narrative Intelligence Agency
 
-Статический сайт [narrativeintelligence.ru](https://narrativeintelligence.ru). Хостинг — Cloudflare Pages (Git integration). Сборки нет: файлы из корня репозитория отдаются как есть, формы обслуживает одна Pages Function.
+Сайт [narrativeintelligence.ru](https://narrativeintelligence.ru). Хостинг — **Cloudflare Workers Static Assets** (не Pages): статика раздаётся из `public/`, один Worker перехватывает `/api/*` для приёма заявок. Сборки нет.
+
+Рабочее имя Worker'а — `broad-paper-a8b7`, к нему привязаны домены `narrativeintelligence.ru` и `www`. Имя менять нельзя: отвалится домен.
 
 ## Структура
 
 ```
-index.html              лендинг
-styles.css              общие стили
-script.js               мобильное меню + интерактивный подбор практики
-lead.js                 обработчик форм заявок (прогрессивное улучшение)
-_redirects              редиректы Cloudflare Pages
-robots.txt
+public/                 ← корень ассетов, отдаётся как есть
+  index.html            лендинг
+  404.html              страница ошибки (not_found_handling: 404-page)
+  styles.css
+  script.js             мобильное меню + интерактивный подбор практики
+  lead.js               обработчик форм заявок (прогрессивное улучшение)
+  _redirects            редиректы (поддерживаются Workers Assets)
+  robots.txt
+  audit/index.html      Narrative Audit + форма заявки на аудит
+  brand/index.html      Dissolved Brand
+  insights/
+    index.html          лента публикаций
+    articles.json       метаданные статей
+    insights.css        тема раздела
+    narrative-debt/ narrative-capital/ dissolved-branding/
+  practices/            6 страниц направлений; audit.html и brand.html — заглушки с redirect
 
-audit/index.html        Narrative Audit + форма заявки на аудит
-brand/index.html        Dissolved Brand
-insights/
-  index.html            лента публикаций
-  articles.json         метаданные статей
-  insights.css          тема раздела
-  narrative-debt/index.html
-  narrative-capital/index.html
-  dissolved-branding/index.html
-practices/              6 страниц направлений; audit.html и brand.html — заглушки с redirect
-
-functions/api/lead.js   POST /api/lead — приём заявок
-scripts/check-lead.mjs  тесты функции (без сети)
-scripts/check-links.py  проверка ссылок, редиректов и форм
+worker.js               fetch-хендлер: /api/* → функции, остальное → env.ASSETS
+lib/lead.js             приём заявки: валидация + уведомление в Telegram
+wrangler.jsonc          конфигурация Worker'а и ассетов
+scripts/check-lead.mjs  тесты обработчика (без сети)
+scripts/check-links.py  ссылки, редиректы, формы, дубли id, контракт клиент↔сервер
 _archive/               исходные zip-архивы (не деплоится, в .gitignore)
 ```
 
 ## Заявки с сайта
 
-Форма есть в контактном блоке каждой страницы и на `/audit/`. Заявка уходит **двумя независимыми запросами из браузера**, и достаточно, чтобы сработал любой:
+Форма есть в контактном блоке каждой страницы и на `/audit/`. Заявка уходит **двумя независимыми запросами из браузера**, достаточно, чтобы сработал любой:
 
 | Канал | Куда | Настройка |
 |---|---|---|
-| Email | `api.web3forms.com` напрямую из браузера | ключ в `lead.js` (`WEB3FORMS_KEY`) |
-| Telegram | `POST /api/lead` → `functions/api/lead.js` | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
+| Email | `api.web3forms.com` напрямую из браузера | ключ в `public/lead.js` (`WEB3FORMS_KEY`) |
+| Telegram | `POST /api/lead` → `worker.js` → `lib/lead.js` | секреты `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
 
-**Почему email не через функцию:** бесплатный тариф Web3Forms не принимает запросы с серверов — на `fetch` из Worker отвечает `This method is not allowed. Use our API in client side or contact support with server IP address (Pro plan is required)`. Поэтому ключ лежит в `lead.js` (он по дизайну публичный), а токен бота — только на сервере, в переменных окружения.
+**Почему email не через сервер:** бесплатный тариф Web3Forms не принимает запросы с серверов — отвечает `This method is not allowed. Use our API in client side or contact support with server IP address (Pro plan is required)`. Поэтому ключ лежит в `lead.js` (он по дизайну публичный), а токен бота — только в секретах Worker'а.
 
-Подробности поведения:
+Поведение:
 
-- без JS форма отправляется обычным POST на `/api/lead` — то есть только в Telegram;
-- если упали оба канала, форма показывает ошибку и сразу даёт ссылку `mailto` с заполненным текстом;
-- недоставленное уведомление попадает в лог воркера (`wrangler pages deployment tail`);
-- защита от ботов: honeypot-поле `botcheck`, минимальное время заполнения 1.5 с, серверная валидация email/полей.
+- без JS форма отправляется обычным POST на `/api/lead` — только в Telegram;
+- если упали оба канала, форма показывает ошибку и даёт ссылку `mailto` с заполненным текстом;
+- недоставленное уведомление пишется в лог Worker'а (`npx wrangler tail`);
+- защита от ботов: honeypot-поле `botcheck`, минимальное время заполнения 1.5 с, серверная валидация.
 
-### Что настроить
+### Секреты
 
-1. **Web3Forms** — https://web3forms.com, ключ уже прописан в `lead.js`. В кабинете включите *Allowed domains → narrativeintelligence.ru*, чтобы ключом не спамили с чужих сайтов. Заявки приходят на email, к которому привязан ключ (`niaagency@yandex.com`).
-2. **Telegram-бот** — `@BotFather` → `/newbot` → токен; затем напишите боту любое сообщение и откройте `https://api.telegram.org/bot<TOKEN>/getUpdates` — там `chat.id`.
-3. **Cloudflare** — Pages → проект → Settings → Environment variables: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (Production и Preview), затем Retry deployment.
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN   # токен из @BotFather
+npx wrangler secret put TELEGRAM_CHAT_ID     # chat.id из getUpdates
+```
 
-Локально те же переменные кладутся в `.dev.vars` (образец — `.dev.vars.example`, в git не попадает).
+Локально — в `.dev.vars` (образец: `.dev.vars.example`, в git не попадает).
+
+Ещё одно, руками в кабинете: **Web3Forms → Allowed domains → `narrativeintelligence.ru`**. Репозиторий публичный, ключ виден всем; без ограничения домена им можно спамить с любого сайта.
 
 ## Локальный запуск
 
-Для страниц достаточно статики: абсолютные ссылки (`/insights/`, `/audit/`) требуют HTTP-сервера, `file://` не подойдёт.
-
 ```bash
-python -m http.server 8080     # только статика, /api/lead отвечать не будет
+npx wrangler dev        # http://localhost:8788 — статика + /api/lead
 ```
 
-Полная среда с работающей функцией:
-
-```bash
-npx wrangler pages dev .       # http://localhost:8788
-```
+Чистая статика без Worker'а: `python -m http.server 8080 --directory public`.
 
 ## Проверки перед деплоем
 
 ```bash
-node scripts/check-lead.mjs     # 12 сценариев Telegram-канала, без сети
-python scripts/check-links.py   # ссылки, редиректы, формы, дубли id
+node scripts/check-lead.mjs     # 16 сценариев: валидация, honeypot, роутинг, ошибки каналов
+python scripts/check-links.py   # ссылки, редиректы, формы, дубли id, контракт клиент↔сервер
 ```
 
 ## Деплой
 
-Автоматически при пуше в `main` через Cloudflare Pages Git integration.
+```bash
+npx wrangler deploy
+```
 
-| Параметр проекта Pages | Значение |
+Проверить, что версия живая:
+
+```bash
+npx wrangler deployments list
+npx wrangler tail            # логи, если заявка не дошла
+```
+
+Автодеплой по пушу настраивается в кабинете: Worker → Settings → Builds → Connect Git (`adrobyshevski-cyber/nia-site`, ветка `main`, build command пустой, deploy command `npx wrangler deploy`). Через API это не подключается — нужен GitHub App.
+
+Важно: `wrangler.jsonc` содержит `workers_dev: false` — сайт доступен только на своём домене, чтобы копия на `*.workers.dev` не попала в поиск.
+
+## Особенности Workers Assets (в отличие от Pages)
+
+| | Статус |
 |---|---|
-| Framework preset | None |
-| Build command | *(пусто)* |
-| Build output directory | `/` |
-
-Ручной деплой без git: `npx wrangler pages deploy . --project-name <project>`.
+| `_redirects` | поддерживается |
+| `404.html` + `not_found_handling: 404-page` | поддерживается |
+| `_headers` | **не поддерживается** — заголовки задаются в `worker.js` |
+| Functions в `functions/` | нет, логика живёт в `worker.js` |
 
 ## Правила контента
 
 - Язык интерфейса — русский, `lang="ru"`.
-- Даты публикаций в `insights/articles.json` — ISO `YYYY-MM-DD`.
+- Даты публикаций в `public/insights/articles.json` — ISO `YYYY-MM-DD`.
 - Блок `.nia-contact` и стили формы продублированы инлайн в каждой странице: при правке контактов менять во всех 11 файлах.
 - Незапущенные страницы `practices/*` — `noindex, follow`.

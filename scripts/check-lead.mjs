@@ -3,7 +3,8 @@
  * Запуск: npm run check
  */
 
-import { onRequestPost, onRequest } from "../functions/api/lead.js";
+import { handleLead } from "../lib/lead.js";
+import worker from "../worker.js";
 
 const calls = [];
 const realFetch = globalThis.fetch;
@@ -22,14 +23,19 @@ const ENV = { TELEGRAM_BOT_TOKEN: "123:abc", TELEGRAM_CHAT_ID: "42" };
 
 function post(payload, env = ENV) {
   const isForm = payload instanceof FormData;
-  return onRequestPost({
-    request: new Request("https://narrativeintelligence.ru/api/lead", {
+  return handleLead(
+    new Request("https://narrativeintelligence.ru/api/lead", {
       method: "POST",
       headers: isForm ? {} : { "content-type": "application/json" },
       body: isForm ? payload : JSON.stringify(payload),
     }),
     env,
-  });
+  );
+}
+
+function requestWorker(request) {
+  const assets = { fetch: async () => new Response("asset", { status: 200 }) };
+  return worker.fetch(request, { ASSETS: assets });
 }
 
 let failed = 0;
@@ -145,9 +151,33 @@ await check("без переменных окружения → 502 и ника�
   assert(calls.length === 0, "без токена сеть не нужна");
 });
 
-await check("GET → 405", async () => {
-  const res = await onRequest({ request: new Request("https://narrativeintelligence.ru/api/lead") });
+await check("GET /api/lead → 405", async () => {
+  const res = await requestWorker(new Request("https://narrativeintelligence.ru/api/lead"));
   assert(res.status === 405, `ожидали 405, получили ${res.status}`);
+});
+
+await check("неизвестный /api/* → 404 JSON, а не 404-страница", async () => {
+  const res = await requestWorker(new Request("https://narrativeintelligence.ru/api/unknown"));
+  assert(res.status === 404, `ожидали 404, получили ${res.status}`);
+  assert((res.headers.get("content-type") || "").includes("application/json"), "ожидали JSON");
+});
+
+await check("остальные пути идут в ассеты", async () => {
+  const res = await requestWorker(new Request("https://narrativeintelligence.ru/audit/"));
+  const text = await res.text();
+  assert(res.status === 200 && text === "asset", "запрос должен уйти в env.ASSETS.fetch");
+});
+
+await check("POST /api/lead через worker роутится в обработчик", async () => {
+  mockFetch();
+  const res = await requestWorker(
+    new Request("https://narrativeintelligence.ru/api/lead", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "contact", email: "a@b.co", message: "x", elapsed: 9000 }),
+    }),
+  );
+  assert(res.status === 502, `без секретов ожидали 502, получили ${res.status}`);
 });
 
 globalThis.fetch = realFetch;
