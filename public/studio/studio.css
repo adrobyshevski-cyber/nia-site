@@ -16,7 +16,8 @@ input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-vis
 .btn:disabled{opacity:.55;cursor:progress}
 
 /* --- экран входа --- */
-body.gate{display:grid;place-items:center;padding:24px}
+/* экран входа — теперь отдельный <main>, а не класс на body */
+.gate{display:grid;place-items:center;min-height:100%;padding:24px}
 .gate-box{width:min(420px,100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:30px}
 .gate-box h1{margin:10px 0 6px;font-size:26px;letter-spacing:-.03em}
 .gate-hint{color:var(--muted);font-size:13px;margin:0 0 22px}
@@ -28,7 +29,11 @@ body.gate{display:grid;place-items:center;padding:24px}
 .gate-back:hover{color:var(--violet2)}
 
 /* --- приложение --- */
-body.app{overflow:hidden}
+body.app{overflow:hidden;height:100%}
+/* оболочка приложения занимает всю высоту: иначе проценты у .layout не считаются
+   и панель редактора не получает собственной высоты — скролла не будет */
+.app-shell{height:100%;display:flex;flex-direction:column;overflow:hidden}
+[hidden]{display:none!important}
 .app-head{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
 .app-head .mark{font-weight:800;letter-spacing:.06em;color:var(--violet2);font-size:14px}
 .app-head .where{font-size:12.5px;color:var(--muted)}
@@ -36,8 +41,8 @@ body.app{overflow:hidden}
 .app-head .state{font-size:12.5px;color:var(--muted);min-height:1em}
 .app-head .state.ok{color:var(--teal)}
 .app-head .state.err{color:var(--danger)}
-.layout{display:grid;grid-template-columns:280px 1fr;height:calc(100% - 54px)}
-.side{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+.layout{display:grid;grid-template-columns:280px 1fr;flex:1 1 auto;min-height:0;overflow:hidden}
+.side{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;overflow:hidden;min-height:0}
 .side-top{display:flex;gap:8px;padding:12px;border-bottom:1px solid var(--line)}
 .side-top .btn{flex:1;padding:8px 10px;font-size:13px}
 .side-filters{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line)}
@@ -53,7 +58,10 @@ body.app{overflow:hidden}
 .side-list .badge.live{border-color:#2f6f63;color:var(--teal)}
 .side-empty{padding:16px 12px;color:var(--muted);font-size:13px}
 
-.editor{overflow:auto;padding:20px 24px 40px}
+.editor{overflow-y:auto;overflow-x:hidden;min-height:0;overscroll-behavior:contain;padding:20px 24px 40px}
+.editor::-webkit-scrollbar,.side-list::-webkit-scrollbar,.preview::-webkit-scrollbar{width:10px}
+.editor::-webkit-scrollbar-thumb,.side-list::-webkit-scrollbar-thumb,.preview::-webkit-scrollbar-thumb{background:#3a3552;border-radius:6px;border:2px solid var(--panel)}
+.editor::-webkit-scrollbar-thumb:hover,.side-list::-webkit-scrollbar-thumb:hover{background:#4b4468}
 .ed-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .field{display:flex;flex-direction:column;gap:6px}
 .field.wide{grid-column:1 / -1}
@@ -78,4 +86,4 @@ body.app{overflow:hidden}
 .preview code{background:#1d1b2e;padding:1px 5px;border-radius:4px;font-size:13px}
 .preview a{color:var(--violet2)}
 .preview .muted{color:var(--muted);font-style:italic}
-@media(max-width:900px){.layout{grid-template-columns:1fr;height:auto}.side{border-right:0;border-bottom:1px solid var(--line);max-height:270px}.ed-grid,.split{grid-template-columns:1fr}body.app{overflow:auto}}
+@media(max-width:900px){.app-shell{height:auto;overflow:visible}.layout{grid-template-columns:1fr;min-height:0;overflow:visible}.side{border-right:0;border-bottom:1px solid var(--line);max-height:270px}.ed-grid,.split{grid-template-columns:1fr}body.app{overflow:auto}}
