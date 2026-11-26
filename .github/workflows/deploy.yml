@@ -48,16 +48,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Проверить наличие токена
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::notice title=Деплой пропущен::Задайте секреты CLOUDFLARE_API_TOKEN и CLOUDFLARE_ACCOUNT_ID (Settings → Secrets and variables → Actions)"
           fi
 
+      # Ставим wrangler явно: версия из wrangler-action не читает wrangler.jsonc
+      - name: Установить wrangler
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: npm install --no-save --no-fund --no-audit wrangler@4
+
       - name: Деплой Worker'а
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+        run: npx wrangler deploy
