@@ -36,6 +36,11 @@ scripts/build-insights.py
 
 worker.js               fetch-хендлер: /api/* → функции, остальное → env.ASSETS
 lib/lead.js             приём заявки: валидация + уведомление в Telegram
+lib/studio.js           /studio: список статей, сохранение и публикация через GitHub API
+lib/auth.js             пароль, подписанная cookie-сессия, лимит попыток входа
+lib/frontmatter.js      разбор и сборка файла статьи (YAML front matter + Markdown)
+lib/github.js           GitHub Contents API: чтение, коммит, удаление
+public/studio/          интерфейс редактора (страница входа + приложение)
 wrangler.jsonc          конфигурация Worker'а и ассетов
 scripts/check-lead.mjs  тесты обработчика (без сети)
 scripts/check-links.py  ссылки, редиректы, формы, canonical/OG/sitemap, дубли id
@@ -108,6 +113,22 @@ python scripts/build-insights.py
 
 Требуется Python 3.10+ и `pip install -r requirements.txt` (mistune, PyYAML, beautifulsoup4).
 
+## Админка /studio
+
+Редактор статей на сайте: `https://narrativeintelligence.ru/studio/`. Закрыт паролем, страница не индексируется (`noindex` + `X-Robots-Tag` + `Disallow: /studio/`).
+
+Возможности: список статей с черновиками, форма всех полей front matter, Markdown-редактор с превью, «Сохранить черновик», «Опубликовать», удаление, переименование slug.
+
+Публикация = коммит в `content/articles/<slug>.md` через GitHub Contents API, дальше CI собирает и деплоит. Токен GitHub живёт в секретах Worker'а (`GITHUB_TOKEN`) и в браузер не попадает.
+
+Безопасность:
+
+- пароль хранится как `sha256(salt ‖ пароль)` в `ADMIN_PASSWORD_HASH`; **не PBKDF2** — на бесплатном плане Workers лимит 10 мс CPU, PBKDF2 со 100k+ итераций вылетает по CPU. Пароль генерируется случайным (~99 бит), поэтому перебор нереален
+- сессия — HMAC-SHA256-подписанная cookie `HttpOnly; Secure; SameSite=Strict`, TTL 12 часов
+- лимит: 8 неудачных попыток входа за 15 минут на IP
+- мутации только со своего `Origin` (CSRF)
+- генерировать пароль: `python scripts/make-admin-password.py`, затем `npx wrangler secret put ADMIN_PASSWORD_HASH`
+
 ## Локальный запуск
 
 ```bash
@@ -121,6 +142,7 @@ npx wrangler dev        # http://localhost:8788 — статика + /api/lead
 ```bash
 python scripts/build-insights.py            # пересобрать insights из Markdown
 node scripts/check-lead.mjs                 # 16 сценариев: валидация, honeypot, роутинг, каналы
+node scripts/check-studio.mjs               # 18 сценариев: front matter, пароль, сессия, маршруты
 python scripts/check-links.py                # ссылки, редиректы, формы, canonical/OG/sitemap, дубли id
 git diff --exit-code -- public              # проверка, что результаты сборки закоммичены
 ```

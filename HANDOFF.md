@@ -119,6 +119,9 @@ npx wrangler deployments list
 | Worker secrets | `TELEGRAM_CHAT_ID` | `360726431`, личный чат `@droal1111` |
 | GitHub Actions | `CLOUDFLARE_API_TOKEN` | деплой из CI (`Account · Workers Scripts · Edit`), ротирован 2026-11-26 |
 | GitHub Actions | `CLOUDFLARE_ACCOUNT_ID` | `9c43f65513791f4aaf18522bf44c7d28` |
+| Worker secrets | `ADMIN_PASSWORD_HASH` | вход в /studio: `sha256$salt$hash` |
+| Worker secrets | `SESSION_SECRET` | HMAC для cookie сессии |
+| Worker secrets | `GITHUB_TOKEN` | PAT (fine-grained, Contents: R/W) для публикации статей |
 | `public/lead.js` | `WEB3FORMS_KEY` | email-канал (публичный) |
 
 Значений в репозитории нет намеренно. Ставить секреты Worker'а:
@@ -139,7 +142,27 @@ npx wrangler secret put TELEGRAM_BOT_TOKEN
 
 Всё это гоняется в CI до деплоя. Локальная приёмка страниц: `npx wrangler dev` (статика + `/api/lead`), для проверки на реальном edge — `npx wrangler dev --remote` (там настоящие секреты).
 
-## 8. Грабли, на которые уже наступили
+## 8. Админка /studio
+
+`/studio/` — редактор статей: вход по паролю, список с черновиками, все поля front matter, Markdown с превью, сохранение черновика, публикация, удаление, переименование slug.
+
+```
+lib/auth.js         пароль, cookie-сессия, лимит попыток
+lib/frontmatter.js  разбор/сборка файла статьи
+lib/github.js       Contents API: чтение, коммит, удаление
+lib/studio.js       маршруты /studio/*
+public/studio/      страница входа и приложение
+```
+
+Публикация = коммит в `content/articles/<slug>.md` → CI собирает и деплоит. `public/insights/` руками по-прежнему не правится.
+
+Безопасность: `sha256(salt ‖ пароль)` вместо PBKDF2 (лимит 10 мс CPU на бесплатном плане; компенсируется случайным паролем ~99 бит), cookie `HttpOnly; Secure; SameSite=Strict` с HMAC-подписью и TTL 12 ч, лимит 8 попыток за 15 минут на IP, проверка `Origin` на мутации, токен GitHub только на сервере, `noindex` + `X-Robots-Tag` + `Disallow: /studio/`.
+
+Сменить пароль: `python scripts/make-admin-password.py` → `npx wrangler secret put ADMIN_PASSWORD_HASH`.
+
+Тесты: `node scripts/check-studio.mjs` (18 сценариев, сеть подменена заглушкой).
+
+## 9. Грабли, на которые уже наступили
 
 | Симптом | Причина | Решение |
 |---|---|---|
@@ -152,22 +175,24 @@ npx wrangler secret put TELEGRAM_BOT_TOKEN
 | `*.workers.dev` дублировал сайт | маршрут workers.dev включён по умолчанию | `workers_dev: false`, `preview_urls: false` |
 | `_headers` не работает | Workers Assets не поддерживает `_headers` (в отличие от Pages) | заголовки в `worker.js` |
 | Страницы практик ранжировались как основные | заглушки были индексируемыми | `noindex, follow` на `practices/culture|economics|lab|strategy` |
+| Вход в /studio падал с `offset is out of bounds` | длина массива считалась по символам, а пароль кодировался в UTF-8 (кириллица) | считать длину `encoder.encode(password)` |
+| `check-links.py` не видел `noindex` | в регулярке вместо `` оказался символ backspace (``) | переписано на разбор meta-тегов через `findall` |
 
-## 9. Бэклог
+## 10. Бэклог
 
 | Задача | Статус |
 |---|---|
 | Фаза 0: MD как источник правды | **готово** (`3dd2d1a`) |
 | Автодеплой по пушу | **готово** (`5afb571`) |
 | Перевыпустить `CLOUDFLARE_API_TOKEN` | **готово** 2026-11-26: Roll, секрет обновлён, CI проверен |
-| Фаза 1: админка `/studio` — пароль, список статей, редактор с превью | не начато |
-| Фаза 2: публикация из админки — коммит через GitHub API → CI | не начато |
+| Фаза 1: админка `/studio` — пароль, список статей, редактор с превью | **готово** |
+| Фаза 2: публикация из админки — коммит через GitHub API → CI | **готово** (фазы 1–2 сделаны вместе) |
 | RSS для insights | не начато |
 | Переезд email-канала на Resend (если появится спам) | по необходимости |
 
 Решения по фазам 1–2: контент остаётся Markdown в репозитории, каждая публикация — коммит (история, откат). Черновики живут в `main` с `draft: true`. Админка потребует секретов `ADMIN_PASSWORD` (PBKDF2-хеш) и GitHub PAT с правом `contents:write` на этот репозиторий.
 
-## 10. Домены и DNS
+## 11. Домены и DNS
 
 Зона `narrativeintelligence.ru` на NS Cloudflare. Custom domains Worker'а привязаны через API (`workers/domains`), а не через `routes` в конфиге — поэтому смена имени Worker'а отвалит домены.
 

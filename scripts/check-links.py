@@ -153,20 +153,52 @@ for page in pages:
     text = open(page, encoding="utf-8").read()
     if rel in ("practices/audit.html", "practices/brand.html", "404.html"):
         continue  # заглушки-редиректы и страница ошибки
+    # порядок атрибутов произвольный: ищем meta, где есть и robots, и noindex
+    noindex = any(
+        "noindex" in tag and "robots" in tag for tag in re.findall(r"<meta[^>]*>", text, re.I)
+    )
+    if noindex:
+        # служебные страницы (studio) не индексируются: canonical и OG им не нужны
+        if os.path.exists(sitemap) and rel.replace("index.html", "") in open(sitemap, encoding="utf-8").read():
+            fail(f"{rel}: страница с noindex присутствует в sitemap.xml")
+        continue
     if 'rel="canonical"' not in text:
         fail(f"{rel}: нет canonical")
     if 'property="og:image"' not in text:
         fail(f"{rel}: нет og:image")
-    noindex = re.search(r'<meta[^>]*name="robots"[^>]*noindex', text)
     url = "/" if rel == "index.html" else "/" + rel.replace("index.html", "")
-    if noindex and os.path.exists(sitemap) and url in open(sitemap, encoding="utf-8").read():
-        fail(f"{rel}: страница с noindex присутствует в sitemap.xml")
     if not noindex and os.path.exists(sitemap) and url not in open(sitemap, encoding="utf-8").read():
         fail(f"{rel}: индексируемой страницы нет в sitemap.xml")
     for image in re.findall(r'property="og:image" content="([^"]+)"', text):
         image_path = urlparse(image).path
         if not os.path.isfile(os.path.join(ROOT, image_path.lstrip("/"))):
             fail(f"{rel}: og:image {image} не найден в репозитории")
+
+# --- studio ----------------------------------------------------------------
+studio_dir = os.path.join(ROOT, "studio")
+if not os.path.isdir(studio_dir):
+    fail("нет каталога public/studio")
+else:
+    for name in ("index.html", "login.html", "studio.js", "studio.css"):
+        path = os.path.join(studio_dir, name)
+        if not os.path.exists(path):
+            fail(f"нет файла public/studio/{name}")
+        elif name.endswith(".html"):
+            text = open(path, encoding="utf-8").read()
+            if "noindex" not in text:
+                fail(f"public/studio/{name}: нет noindex")
+    robots = open(os.path.join(ROOT, "robots.txt"), encoding="utf-8").read()
+    if "Disallow: /studio/" not in robots:
+        fail("robots.txt: нет Disallow: /studio/")
+    if os.path.exists(os.path.join(ROOT, "sitemap.xml")):
+        if "/studio" in open(os.path.join(ROOT, "sitemap.xml"), encoding="utf-8").read():
+            fail("sitemap.xml: /studio не должен попадать в карту")
+
+worker_src = open(os.path.join(REPO, "worker.js"), encoding="utf-8").read()
+if "/studio" not in worker_src:
+    fail("worker.js: нет маршрута /studio")
+if "x-robots-tag" not in worker_src:
+    fail("worker.js: нет X-Robots-Tag для /studio")
 
 # --- обязательные файлы -----------------------------------------------------
 for required in ("lib/lead.js", "worker.js", "wrangler.jsonc"):

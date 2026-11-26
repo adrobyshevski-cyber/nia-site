@@ -5,8 +5,12 @@
   "type": "module",
   "description": "narrativeintelligence.ru — статический сайт NIA (Cloudflare Pages)",
   "scripts": {
-    "dev": "wrangler pages dev .",
-    "deploy": "wrangler pages deploy .",
-    "check": "node scripts/check-lead.mjs"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "python scripts/build-insights.py",
+    "check": "node scripts/check-lead.mjs && node scripts/check-studio.mjs && python scripts/check-links.py",
+    "check:leads": "node scripts/check-lead.mjs",
+    "check:studio": "node scripts/check-studio.mjs",
+    "check:links": "python scripts/check-links.py"
   }
 }

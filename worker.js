@@ -7,6 +7,7 @@
  */
 
 import { handleLead, json } from "./lib/lead.js";
+import { handleStudio } from "./lib/studio.js";
 
 const HSTS = "max-age=15552000"; // 180 дней, без includeSubDomains
 
@@ -56,6 +57,7 @@ function harden(response, pathname) {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(BASE_HEADERS)) headers.set(name, value);
   headers.set("cache-control", cachePolicy(pathname));
+  if (pathname.startsWith("/studio")) headers.set("x-robots-tag", "noindex, nofollow");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -75,6 +77,11 @@ export default {
 
     if (url.pathname.startsWith("/api/")) {
       return json({ ok: false, error: "Неизвестный метод API." }, 404);
+    }
+
+    if (url.pathname === "/studio" || url.pathname.startsWith("/studio/")) {
+      const response = await handleStudio(request, env, { serveAsset: (req) => env.ASSETS.fetch(req) });
+      return harden(response, url.pathname);
     }
 
     const response = await env.ASSETS.fetch(request);

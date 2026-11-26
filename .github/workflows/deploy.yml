@@ -36,6 +36,9 @@ jobs:
       - name: Тесты обработчика заявок
         run: node scripts/check-lead.mjs
 
+      - name: Тесты /studio (пароль, сессия, маршруты)
+        run: node scripts/check-studio.mjs
+
       - name: Ссылки, формы, canonical/OG/sitemap
         run: python scripts/check-links.py
 
