@@ -174,6 +174,38 @@ for page in pages:
         if not os.path.isfile(os.path.join(ROOT, image_path.lstrip("/"))):
             fail(f"{rel}: og:image {image} не найден в репозитории")
 
+# --- иконки и структурированные данные ---------------------------------------
+for page in pages:
+    rel = os.path.relpath(page, ROOT).replace(os.sep, "/")
+    text = open(page, encoding="utf-8").read()
+    if rel in ("practices/audit.html", "practices/brand.html"):
+        continue  # заглушки-редиректы
+    if "favicon" not in text:
+        fail(f"{rel}: нет favicon")
+    if rel == "404.html":
+        continue
+
+    for raw in re.findall(r'<script type="application/ld\+json">(.*?)</script>', text, re.S):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            fail(f"{rel}: битый JSON-LD ({exc})")
+            continue
+        types = [item.get("@type") for item in data.get("@graph", [])]
+        if rel.startswith("insights/") and rel != "insights/index.html":
+            if "Article" not in types:
+                fail(f"{rel}: в JSON-LD нет Article")
+            if "BreadcrumbList" not in types:
+                fail(f"{rel}: в JSON-LD нет BreadcrumbList")
+        elif rel == "index.html" and "Organization" not in types:
+            fail(f"{rel}: в JSON-LD нет Organization")
+
+    og_type = re.search(r'property="og:type" content="([^"]+)"', text)
+    if og_type:
+        expected = "article" if rel.startswith("insights/") and rel != "insights/index.html" else "website"
+        if og_type.group(1) != expected:
+            fail(f"{rel}: og:type={og_type.group(1)}, ожидался {expected}")
+
 # --- studio ----------------------------------------------------------------
 studio_dir = os.path.join(ROOT, "studio")
 if not os.path.isdir(studio_dir):

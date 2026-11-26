@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /studio
 Disallow: /studio/
 
 Sitemap: https://narrativeintelligence.ru/sitemap.xml

@@ -151,6 +151,22 @@ await check("без переменных окружения → 502 и ника�
   assert(calls.length === 0, "без токена сеть не нужна");
 });
 
+await check("www → apex: 301 с сохранением пути и query", async () => {
+  const res = await requestWorker(
+    new Request("https://www.narrativeintelligence.ru/insights/?utm_source=x"),
+  );
+  assert(res.status === 301, `ожидали 301, получили ${res.status}`);
+  assert(
+    res.headers.get("location") === "https://narrativeintelligence.ru/insights/?utm_source=x",
+    `Location: ${res.headers.get("location")}`,
+  );
+});
+
+await check("apex не редиректится", async () => {
+  const res = await requestWorker(new Request("https://narrativeintelligence.ru/audit/"));
+  assert(res.status === 200, `ожидали 200, получили ${res.status}`);
+});
+
 await check("GET /api/lead → 405", async () => {
   const res = await requestWorker(new Request("https://narrativeintelligence.ru/api/lead"));
   assert(res.status === 405, `ожидали 405, получили ${res.status}`);

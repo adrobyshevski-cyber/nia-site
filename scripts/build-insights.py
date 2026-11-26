@@ -134,8 +134,47 @@ def render_article(article, related):
         items = "".join(f'<li><a href="{esc(a["url"])}">{esc(a["title"])}</a></li>' for a in related[:2])
         also = f"<h2>Читайте также</h2><ul>{items}</ul>"
 
+    # длинный заголовок в SERP обрезается — суффикс добавляем, только если влезает
+    page_title = f"{article['title']} | NIA Insights"
+    if len(page_title) > 65:
+        page_title = article["title"]
+
+    article_ld = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "Article",
+                "headline": article["title"],
+                "description": article["description"],
+                "image": [SITE + "/og/insights.png"],
+                "datePublished": article["date"],
+                "dateModified": article["date"],
+                "inLanguage": "ru",
+                "author": {"@type": "Organization", "name": article["author"]},
+                "publisher": {
+                    "@type": "Organization",
+                    "name": "Narrative Intelligence Agency",
+                    "logo": {"@type": "ImageObject", "url": SITE + "/icon-512.png"},
+                },
+                "mainEntityOfPage": {"@type": "WebPage", "@id": SITE + article["url"]},
+            },
+            {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "NIA", "item": SITE + "/"},
+                    {"@type": "ListItem", "position": 2, "name": "Insights", "item": SITE + "/insights/"},
+                    {"@type": "ListItem", "position": 3, "name": str(article["category"])},
+                ],
+            },
+        ],
+    }
+    jsonld = '<script type="application/ld+json">' + json.dumps(article_ld, ensure_ascii=False, separators=(",", ":")) + "</script>"
+
     replacements = {
-        "{{TITLE}}": esc(f"{article['title']} | NIA Insights"),
+        "{{TITLE}}": esc(page_title),
+        "{{OG_TYPE}}": "article",
+        "{{CATEGORY_ATTR}}": esc(article["category"]),
+        "{{JSONLD}}": jsonld,
         "{{DESCRIPTION}}": esc(article["description"]),
         "{{URL}}": SITE + article["url"],
         "{{BREADCRUMB}}": breadcrumb,

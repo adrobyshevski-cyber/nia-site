@@ -69,6 +69,17 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    // www → без www: иначе два адреса отдают 200 и поисковик видит дубли
+    if (url.hostname.startsWith("www.")) {
+      const target = new URL(request.url);
+      target.hostname = url.hostname.slice(4);
+      target.protocol = "https:";
+      return new Response(null, {
+        status: 301,
+        headers: { location: target.toString(), "cache-control": "public, max-age=3600" },
+      });
+    }
+
     if (url.pathname === "/api/lead") {
       if (request.method === "POST") return handleLead(request, env);
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
