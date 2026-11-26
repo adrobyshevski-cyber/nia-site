@@ -31,23 +31,27 @@ _archive/               исходные zip-архивы (не деплоитс
 
 ## Заявки с сайта
 
-Форма есть в контактном блоке каждой страницы и на `/audit/`. Она отправляет `POST /api/lead`, функция `functions/api/lead.js` доставляет заявку по двум каналам одновременно:
+Форма есть в контактном блоке каждой страницы и на `/audit/`. Заявка уходит **двумя независимыми запросами из браузера**, и достаточно, чтобы сработал любой:
 
-| Канал | Переменные окружения |
-|---|---|
-| Email через Web3Forms (заявки приходят на `niaagency@yandex.com`) | `WEB3FORMS_KEY` |
-| Уведомление в Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
+| Канал | Куда | Настройка |
+|---|---|---|
+| Email | `api.web3forms.com` напрямую из браузера | ключ в `lead.js` (`WEB3FORMS_KEY`) |
+| Telegram | `POST /api/lead` → `functions/api/lead.js` | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
 
-Каналы независимы: если Web3Forms недоступен, заявка всё равно уйдёт в Telegram, и наоборот. Если не сработали оба — форма показывает ошибку и предлагает написать на email, а сама заявка попадает в логи воркера (`wrangler pages deployment tail`). Без заданных переменных форма честно сообщает об ошибке, а не врёт об успехе.
+**Почему email не через функцию:** бесплатный тариф Web3Forms не принимает запросы с серверов — на `fetch` из Worker отвечает `This method is not allowed. Use our API in client side or contact support with server IP address (Pro plan is required)`. Поэтому ключ лежит в `lead.js` (он по дизайну публичный), а токен бота — только на сервере, в переменных окружения.
 
-Защита от ботов: honeypot-поле `botcheck`, минимальное время заполнения 1.5 с, серверная валидация email/полей.
+Подробности поведения:
 
-### Настройка секретов
+- без JS форма отправляется обычным POST на `/api/lead` — то есть только в Telegram;
+- если упали оба канала, форма показывает ошибку и сразу даёт ссылку `mailto` с заполненным текстом;
+- недоставленное уведомление попадает в лог воркера (`wrangler pages deployment tail`);
+- защита от ботов: honeypot-поле `botcheck`, минимальное время заполнения 1.5 с, серверная валидация email/полей.
 
-1. Ключ Web3Forms: https://web3forms.com → создать Access Key на `niaagency@yandex.com`
-2. Бот Telegram: `@BotFather` → `/newbot` → токен; узнать `chat_id` можно через `https://api.telegram.org/bot<TOKEN>/getUpdates` после любого сообщения боту
-3. Cloudflare Pages → проект → Settings → Environment variables → добавить три переменные (Production и Preview)
-4. Передеплоить: Deployments → Retry deployment, либо `git commit --allow-empty -m "redeploy"`
+### Что настроить
+
+1. **Web3Forms** — https://web3forms.com, ключ уже прописан в `lead.js`. В кабинете включите *Allowed domains → narrativeintelligence.ru*, чтобы ключом не спамили с чужих сайтов. Заявки приходят на email, к которому привязан ключ (`niaagency@yandex.com`).
+2. **Telegram-бот** — `@BotFather` → `/newbot` → токен; затем напишите боту любое сообщение и откройте `https://api.telegram.org/bot<TOKEN>/getUpdates` — там `chat.id`.
+3. **Cloudflare** — Pages → проект → Settings → Environment variables: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (Production и Preview), затем Retry deployment.
 
 Локально те же переменные кладутся в `.dev.vars` (образец — `.dev.vars.example`, в git не попадает).
 
@@ -68,7 +72,7 @@ npx wrangler pages dev .       # http://localhost:8788
 ## Проверки перед деплоем
 
 ```bash
-node scripts/check-lead.mjs     # 11 сценариев приёма заявок, без сети
+node scripts/check-lead.mjs     # 12 сценариев Telegram-канала, без сети
 python scripts/check-links.py   # ссылки, редиректы, формы, дубли id
 ```
 

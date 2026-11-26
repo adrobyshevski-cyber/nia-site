@@ -8,32 +8,27 @@ import { onRequestPost, onRequest } from "../functions/api/lead.js";
 const calls = [];
 const realFetch = globalThis.fetch;
 
-function mockFetch({ web3formsStatus = 200, telegramStatus = 200 } = {}) {
+function mockFetch({ telegramStatus = 200 } = {}) {
   globalThis.fetch = async (url, init) => {
     calls.push({ url, body: JSON.parse(init.body) });
-    if (url.includes("web3forms")) {
-      return new Response(JSON.stringify({ success: web3formsStatus === 200 }), { status: web3formsStatus });
-    }
-    if (url.includes("telegram")) {
+    if (url.includes("api.telegram.org")) {
       return new Response(JSON.stringify({ ok: telegramStatus === 200 }), { status: telegramStatus });
     }
     return new Response("unexpected", { status: 500 });
   };
 }
 
-const ENV = { WEB3FORMS_KEY: "test-key", TELEGRAM_BOT_TOKEN: "123:abc", TELEGRAM_CHAT_ID: "42" };
+const ENV = { TELEGRAM_BOT_TOKEN: "123:abc", TELEGRAM_CHAT_ID: "42" };
 
-function post(payload) {
+function post(payload, env = ENV) {
   const isForm = payload instanceof FormData;
   return onRequestPost({
     request: new Request("https://narrativeintelligence.ru/api/lead", {
       method: "POST",
-      headers: isForm
-        ? { referer: "https://narrativeintelligence.ru/audit/" }
-        : { "content-type": "application/json", referer: "https://narrativeintelligence.ru/audit/" },
+      headers: isForm ? {} : { "content-type": "application/json" },
       body: isForm ? payload : JSON.stringify(payload),
     }),
-    env: ENV,
+    env,
   });
 }
 
@@ -54,9 +49,9 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-console.log("POST /api/lead");
+console.log("POST /api/lead (Telegram-канал)");
 
-await check("валидная заявка на аудит уходит в оба канала", async () => {
+await check("валидная заявка на аудит уходит в Telegram", async () => {
   mockFetch();
   const res = await post({
     kind: "audit",
@@ -67,16 +62,25 @@ await check("валидная заявка на аудит уходит в об�
   });
   const body = await res.json();
   assert(res.status === 200 && body.ok, `ожидали 200/ok, получили ${res.status} ${JSON.stringify(body)}`);
-  assert(calls.length === 2, `ожидали 2 канала, получили ${calls.length}`);
-  const mail = calls.find((c) => c.url.includes("web3forms")).body;
-  assert(mail.replyto === "client@example.com", "replyto должен быть адресом клиента");
-  assert(mail.subject.includes("аудит"), "тема письма должна указывать на аудит");
-  const tg = calls.find((c) => c.url.includes("telegram")).body;
+  assert(calls.length === 1, `ожидали 1 запрос, получили ${calls.length}`);
+  const tg = calls[0].body;
+  assert(calls[0].url.includes("api.telegram.org"), "запрос должен идти в Telegram API");
   assert(tg.chat_id === "42", "chat_id не совпадает");
+  assert(tg.parse_mode === "HTML", "parse_mode должен быть HTML");
+  assert(tg.text.includes("Заявка на аудит"), "в уведомлении нет типа заявки");
   assert(tg.text.includes("example.com"), "в уведомлении нет сайта");
+  assert(tg.text.includes("client@example.com"), "в уведомлении нет email");
 });
 
-await check("пустой email отклоняется без отправки", async () => {
+await check("HTML в пользовательских данных экранируется", async () => {
+  mockFetch();
+  await post({ kind: "contact", email: "a@b.co", name: "<b>злой</b>", message: "x", elapsed: 9000 });
+  const tg = calls[0].body;
+  assert(!tg.text.includes("<b>злой"), "имя попало в разметку без экранирования");
+  assert(tg.text.includes("&lt;b&gt;злой"), "ожидали экранированный вариант");
+});
+
+await check("некорректный email отклоняется без сети", async () => {
   mockFetch();
   const res = await post({ kind: "contact", email: "не-email", message: "Привет", elapsed: 9000 });
   assert(res.status === 400, `ожидали 400, получили ${res.status}`);
@@ -117,7 +121,7 @@ await check("formData-отправка без JS работает", async () => 
   fd.set("message", "Отправлено без JS");
   const res = await post(fd);
   assert(res.status === 200, `ожидали 200, получили ${res.status}`);
-  assert(calls.length === 2, "должны уйти оба канала");
+  assert(calls.length === 1, "уведомление должно уйти");
 });
 
 await check("без поля elapsed (нет JS) заявка доставляется", async () => {
@@ -125,36 +129,20 @@ await check("без поля elapsed (нет JS) заявка доставляе
   const res = await post({ kind: "contact", email: "a@b.co", message: "x" });
   const body = await res.json();
   assert(res.status === 200 && body.ok, `ожидали 200/ok, получили ${res.status}`);
-  assert(calls.length === 2, "должны уйти оба канала");
 });
 
-await check("падение Web3Forms не теряет заявку (Telegram сработал)", async () => {
-  mockFetch({ web3formsStatus: 500 });
-  const res = await post({ kind: "contact", email: "a@b.co", message: "x", elapsed: 9000 });
-  const body = await res.json();
-  assert(res.status === 200 && body.ok, `ожидали успех через Telegram, получили ${res.status}`);
-});
-
-await check("оба канала упали → 502", async () => {
-  mockFetch({ web3formsStatus: 500, telegramStatus: 403 });
+await check("ошибка Telegram → 502 с понятной причиной", async () => {
+  mockFetch({ telegramStatus: 403 });
   const res = await post({ kind: "contact", email: "a@b.co", message: "x", elapsed: 9000 });
   const body = await res.json();
   assert(res.status === 502 && !body.ok, `ожидали 502, получили ${res.status}`);
-  assert(body.error.includes("niaagency@yandex.com"), "в ошибке должен быть запасной email");
 });
 
-await check("без переменных окружения → 502 (форма не врёт об успехе)", async () => {
+await check("без переменных окружения → 502 и никаких запросов", async () => {
   mockFetch();
-  const res = await onRequestPost({
-    request: new Request("https://narrativeintelligence.ru/api/lead", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind: "contact", email: "a@b.co", message: "x", elapsed: 9000 }),
-    }),
-    env: {},
-  });
+  const res = await post({ kind: "contact", email: "a@b.co", message: "x", elapsed: 9000 }, {});
   assert(res.status === 502, `ожидали 502, получили ${res.status}`);
-  assert(calls.length === 0, "без ключей сеть не нужна");
+  assert(calls.length === 0, "без токена сеть не нужна");
 });
 
 await check("GET → 405", async () => {

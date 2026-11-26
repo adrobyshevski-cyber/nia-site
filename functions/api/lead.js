@@ -1,12 +1,13 @@
 /**
- * POST /api/lead — приём заявок с сайта.
+ * POST /api/lead — Telegram-канал приёма заявок.
  *
- * Доставка идёт параллельно по двум каналам, чтобы заявка не терялась при сбое одного:
- *   1) email через Web3Forms API  (env.WEB3FORMS_KEY)
- *   2) уведомление в Telegram     (env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID)
+ * Почему только Telegram: Web3Forms на бесплатном тарифе не принимает запросы с
+ * серверов («Use our API in client side», allowlist IP — только Pro), поэтому
+ * письмо отправляется из браузера напрямую (см. lead.js), а эта функция нужна
+ * для мгновенного уведомления в Telegram, где токен бота нельзя отдавать в браузер.
  *
- * Переменные окружения задаются в Cloudflare Pages → Settings → Environment variables.
- * Локально: файл .dev.vars (см. .dev.vars.example).
+ * Нужны переменные окружения: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+ * Локально — .dev.vars (образец: .dev.vars.example).
  */
 
 const LIMITS = { name: 100, email: 200, message: 2000, website: 300, page: 200, kind: 32 };
@@ -33,7 +34,7 @@ async function readBody(request) {
       return null;
     }
   }
-  // progressive enhancement: обычный submit формы без JS
+  // прогрессивное улучшение: обычный submit формы без JS
   try {
     return Object.fromEntries(await request.formData());
   } catch {
@@ -41,59 +42,11 @@ async function readBody(request) {
   }
 }
 
-async function sendEmail(env, lead) {
-  const key = env.WEB3FORMS_KEY;
-  if (!key) return { channel: "email", ok: false, skipped: true, error: "WEB3FORMS_KEY не задан" };
-
-  const lines = [
-    `Тип заявки: ${lead.kind}`,
-    `Имя: ${lead.name || "—"}`,
-    `Email: ${lead.email}`,
-    lead.website ? `Сайт: ${lead.website}` : null,
-    "",
-    lead.message || "(сообщение не заполнено)",
-    "",
-    `Страница: ${lead.page || "—"}`,
-    `Referer: ${lead.referer || "—"}`,
-    `Время (UTC): ${new Date().toISOString()}`,
-  ].filter((line) => line !== null);
-
-  const subject =
-    lead.kind === "audit" ? "NIA / заявка на бесплатный аудит" : "NIA / запрос с сайта";
-
-  const res = await fetch("https://api.web3forms.com/submit", {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({
-      access_key: key,
-      subject,
-      from_name: "NIA Site",
-      replyto: lead.email,
-      email: lead.email,
-      name: lead.name || "—",
-      message: lines.join("\n"),
-    }),
-  });
-
-  const text = await res.text();
-  if (!res.ok) return { channel: "email", ok: false, error: `Web3Forms ${res.status}: ${text.slice(0, 200)}` };
-  let payload = null;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    /* Web3Forms иногда отвечает не-JSON при ошибке */
-  }
-  if (payload && payload.success === false) {
-    return { channel: "email", ok: false, error: `Web3Forms: ${payload.message || "success=false"}` };
-  }
-  return { channel: "email", ok: true };
-}
-
 async function sendTelegram(env, lead) {
   const token = env.TELEGRAM_BOT_TOKEN;
   const chatId = env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) {
-    return { channel: "telegram", ok: false, skipped: true, error: "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы" };
+    return { ok: false, error: "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы" };
   }
 
   const title = lead.kind === "audit" ? "🔍 Заявка на аудит" : "✉️ Запрос с сайта";
@@ -119,9 +72,9 @@ async function sendTelegram(env, lead) {
 
   if (!res.ok) {
     const text = await res.text();
-    return { channel: "telegram", ok: false, error: `Telegram ${res.status}: ${text.slice(0, 200)}` };
+    return { ok: false, error: `Telegram ${res.status}: ${text.slice(0, 200)}` };
   }
-  return { channel: "telegram", ok: true };
+  return { ok: true };
 }
 
 export async function onRequestPost({ request, env }) {
@@ -143,7 +96,6 @@ export async function onRequestPost({ request, env }) {
     website: clip(raw.website, LIMITS.website),
     message: clip(raw.message, LIMITS.message),
     page: clip(raw.page, LIMITS.page),
-    referer: clip(request.headers.get("referer") || "", LIMITS.page),
   };
 
   if (!EMAIL_RE.test(lead.email)) {
@@ -156,19 +108,15 @@ export async function onRequestPost({ request, env }) {
     return json({ ok: false, error: "Опишите задачу — хотя бы одним предложением." }, 400);
   }
 
-  const results = await Promise.allSettled([sendEmail(env, lead), sendTelegram(env, lead)]);
-  const channels = results.map((r) =>
-    r.status === "fulfilled" ? r.value : { channel: "unknown", ok: false, error: String(r.reason) },
-  );
+  const result = await sendTelegram(env, lead);
+  if (!result.ok) {
+    // письмо уходит из браузера отдельным запросом, поэтому это не потеря заявки,
+    // но в лог пишем — пригодится при разборе «а мне ничего не пришло»
+    console.error("telegram delivery failed", JSON.stringify({ lead, error: result.error }));
+    return json({ ok: false, error: "Telegram-уведомление не доставлено." }, 502);
+  }
 
-  const delivered = channels.some((c) => c.ok);
-  // заявка не доставлена никуда — пишем в логи воркера, чтобы можно было найти вручную
-  if (!delivered) console.error("lead delivery failed", JSON.stringify({ lead, channels }));
-
-  return json(
-    delivered ? { ok: true } : { ok: false, error: "Не удалось доставить заявку. Напишите на niaagency@yandex.com." },
-    delivered ? 200 : 502,
-  );
+  return json({ ok: true });
 }
 
 export async function onRequest({ request }) {

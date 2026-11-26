@@ -135,6 +135,28 @@ for required in ("functions/api/lead.js", "lead.js", "_redirects", "robots.txt")
     if not os.path.exists(os.path.join(ROOT, required)):
         fail(f"нет файла {required}")
 
+# --- функции и клиент -------------------------------------------------------
+lead_js = os.path.join(ROOT, "lead.js")
+if os.path.exists(lead_js):
+    client = open(lead_js, encoding="utf-8").read()
+    if "https://api.web3forms.com/submit" not in client:
+        fail("lead.js: нет отправки в Web3Forms (email-канал)")
+    if '"/api/lead"' not in client:
+        fail("lead.js: нет отправки в /api/lead (Telegram-канал)")
+    key = re.search(r'WEB3FORMS_KEY = "([^"]*)"', client)
+    if not key or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", key.group(1)):
+        fail("lead.js: WEB3FORMS_KEY пуст или не похож на access key")
+    if re.search(r'WEB3FORMS_KEY = ""', client):
+        fail("lead.js: WEB3FORMS_KEY не заполнен — email-канал молча не работает")
+
+function_js = os.path.join(ROOT, "functions", "api", "lead.js")
+if os.path.exists(function_js):
+    server = open(function_js, encoding="utf-8").read()
+    if "api.web3forms.com" in server:
+        fail("functions/api/lead.js: Web3Forms нельзя вызывать с сервера (бесплатный тариф блокирует)")
+    if "api.telegram.org" not in server:
+        fail("functions/api/lead.js: нет отправки в Telegram")
+
 print(f"страниц: {len(pages)}, внутренних ссылок проверено: {checked_links}, редиректов: {len(rules)}")
 if problems:
     print(f"\nпроблемы ({len(problems)}):")
