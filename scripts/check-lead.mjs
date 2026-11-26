@@ -35,7 +35,7 @@ function post(payload, env = ENV) {
 
 function requestWorker(request) {
   const assets = { fetch: async () => new Response("asset", { status: 200 }) };
-  return worker.fetch(request, { ASSETS: assets });
+  return worker.fetch(request, { ASSETS: assets, ...ENV });
 }
 
 let failed = 0;
@@ -151,6 +151,62 @@ await check("без переменных окружения → 502 и ника�
   assert(calls.length === 0, "без токена сеть не нужна");
 });
 
+await check("нативная отправка формой → 303 на страницу с ?sent=1", async () => {
+  mockFetch();
+  const body = new URLSearchParams({
+    kind: "audit",
+    email: "form@example.com",
+    website: "https://example.com",
+    elapsed: "9000",
+  });
+  const res = await requestWorker(
+    new Request("https://narrativeintelligence.ru/api/lead", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        referer: "https://narrativeintelligence.ru/audit/",
+        accept: "text/html",
+      },
+      body,
+    }),
+  );
+  assert(res.status === 303, `ожидали 303, получили ${res.status}`);
+  assert(
+    res.headers.get("location") === "https://narrativeintelligence.ru/audit/?sent=1",
+    `Location: ${res.headers.get("location")}`,
+  );
+});
+
+await check("нативная отправка с ошибкой → 303 с ?lead_error=1", async () => {
+  mockFetch({ telegramStatus: 403 });
+  const body = new URLSearchParams({ kind: "contact", email: "a@b.co", message: "x", elapsed: "9000" });
+  const res = await requestWorker(
+    new Request("https://narrativeintelligence.ru/api/lead", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", referer: "https://narrativeintelligence.ru/audit/" },
+      body,
+    }),
+  );
+  assert(res.status === 303, `ожидали 303, получили ${res.status}`);
+  assert(
+    res.headers.get("location") === "https://narrativeintelligence.ru/audit/?lead_error=1",
+    `Location: ${res.headers.get("location")}`,
+  );
+});
+
+await check("fetch с JSON остаётся JSON-ответом", async () => {
+  mockFetch();
+  const res = await requestWorker(
+    new Request("https://narrativeintelligence.ru/api/lead", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ kind: "contact", email: "a@b.co", message: "x", elapsed: 9000 }),
+    }),
+  );
+  assert(res.status === 200, `ожидали 200, получили ${res.status}`);
+  assert((res.headers.get("content-type") || "").includes("application/json"), "ожидали JSON");
+});
+
 await check("www → apex: 301 с сохранением пути и query", async () => {
   const res = await requestWorker(
     new Request("https://www.narrativeintelligence.ru/insights/?utm_source=x"),
@@ -186,12 +242,13 @@ await check("остальные пути идут в ассеты", async () => 
 
 await check("POST /api/lead через worker роутится в обработчик", async () => {
   mockFetch();
-  const res = await requestWorker(
+  const res = await worker.fetch(
     new Request("https://narrativeintelligence.ru/api/lead", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ kind: "contact", email: "a@b.co", message: "x", elapsed: 9000 }),
     }),
+    { ASSETS: { fetch: async () => new Response("asset") } }, // без секретов
   );
   assert(res.status === 502, `без секретов ожидали 502, получили ${res.status}`);
 });

@@ -81,7 +81,31 @@ export default {
     }
 
     if (url.pathname === "/api/lead") {
-      if (request.method === "POST") return handleLead(request, env);
+      if (request.method === "POST") {
+        const response = await handleLead(request, env);
+        // Отправка обычной формой (без JS или до того, как скрипт подписался):
+        // вместо JSON человек должен увидеть страницу с сервисным окном.
+        const type = request.headers.get("content-type") || "";
+        const nativeSubmit =
+          type.includes("application/x-www-form-urlencoded") || type.includes("multipart/form-data");
+        if (!nativeSubmit) return response;
+
+        const referer = request.headers.get("referer");
+        let target = "https://narrativeintelligence.ru/";
+        try {
+          const parsed = new URL(referer || "/", "https://narrativeintelligence.ru/");
+          parsed.searchParams.delete("sent");
+          parsed.searchParams.delete("lead_error");
+          parsed.searchParams.set(response.ok ? "sent" : "lead_error", "1");
+          target = parsed.toString();
+        } catch {
+          /* оставляем главную */
+        }
+        return new Response(null, {
+          status: 303,
+          headers: { location: target, "cache-control": "no-store" },
+        });
+      }
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
       return json({ ok: false, error: "Метод не поддерживается." }, 405);
     }
