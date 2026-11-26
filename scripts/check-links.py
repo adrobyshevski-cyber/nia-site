@@ -232,6 +232,38 @@ if "/studio" not in worker_src:
 if "x-robots-tag" not in worker_src:
     fail("worker.js: нет X-Robots-Tag для /studio")
 
+# --- /demo и /privacy: служебные, вне индекса --------------------------------
+for rel, expected_canonical in (("demo/index.html", "https://narrativeintelligence.ru/audit/"),):
+    path = os.path.join(ROOT, rel)
+    if not os.path.exists(path):
+        fail(f"нет файла public/{rel}")
+        continue
+    text = open(path, encoding="utf-8").read()
+    if "noindex" not in text:
+        fail(f"public/{rel}: нет noindex")
+    canonical = re.search(r'<link[^>]*rel="canonical"[^>]*>', text, re.I)
+    if not canonical:
+        fail(f"public/{rel}: нет canonical")
+    elif expected_canonical not in canonical.group(0):
+        fail(f"public/{rel}: canonical должен вести на {expected_canonical}")
+    if "<loc>https://narrativeintelligence.ru/demo" in open(os.path.join(ROOT, "sitemap.xml"), encoding="utf-8").read():
+        fail("sitemap.xml: /demo не должен попадать в карту")
+
+privacy = os.path.join(ROOT, "privacy", "index.html")
+if not os.path.exists(privacy):
+    fail("нет public/privacy/index.html")
+elif "noindex" not in open(privacy, encoding="utf-8").read():
+    fail("public/privacy/index.html: нет noindex")
+
+robots = open(os.path.join(ROOT, "robots.txt"), encoding="utf-8").read()
+for path in ("/demo", "/privacy", "/studio", "/api/"):
+    if f"Disallow: {path}" not in robots:
+        fail(f"robots.txt: нет Disallow: {path}")
+
+for name in ("index.html", "demo.js", "demo.css"):
+    if not os.path.exists(os.path.join(ROOT, "demo", name)):
+        fail(f"нет файла public/demo/{name}")
+
 # --- обязательные файлы -----------------------------------------------------
 for required in ("lib/lead.js", "worker.js", "wrangler.jsonc"):
     if not os.path.exists(os.path.join(REPO, required)):

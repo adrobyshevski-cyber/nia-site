@@ -42,6 +42,9 @@ jobs:
       - name: Тесты импорта статьи из файла
         run: node scripts/check-import.mjs
 
+      - name: Тесты /demo (лимиты, статусы, контакты)
+        run: node scripts/check-audit.mjs
+
       - name: Ссылки, формы, canonical/OG/sitemap
         run: python scripts/check-links.py
 

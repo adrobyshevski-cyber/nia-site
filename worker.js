@@ -8,6 +8,7 @@
 
 import { handleLead, json } from "./lib/lead.js";
 import { handleStudio } from "./lib/studio.js";
+import { handleAudit } from "./lib/audit.js";
 
 const HSTS = "max-age=15552000"; // 180 дней, без includeSubDomains
 
@@ -57,7 +58,9 @@ function harden(response, pathname) {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(BASE_HEADERS)) headers.set(name, value);
   headers.set("cache-control", cachePolicy(pathname));
-  if (pathname.startsWith("/studio")) headers.set("x-robots-tag", "noindex, nofollow");
+  if (pathname.startsWith("/studio") || pathname.startsWith("/demo") || pathname.startsWith("/privacy")) {
+    headers.set("x-robots-tag", "noindex, nofollow");
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -108,6 +111,10 @@ export default {
       }
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
       return json({ ok: false, error: "Метод не поддерживается." }, 405);
+    }
+
+    if (url.pathname.startsWith("/api/audit/")) {
+      return handleAudit(request, env, url.pathname);
     }
 
     if (url.pathname.startsWith("/api/")) {

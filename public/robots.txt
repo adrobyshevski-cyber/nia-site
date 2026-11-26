@@ -3,5 +3,7 @@ Allow: /
 Disallow: /api/
 Disallow: /studio
 Disallow: /studio/
+Disallow: /demo
+Disallow: /privacy
 
 Sitemap: https://narrativeintelligence.ru/sitemap.xml
