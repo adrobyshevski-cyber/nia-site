@@ -9,6 +9,9 @@
   let dirty = false;
   let filter = "all";
 
+  let showGate = () => {};
+  let showApp = async () => {};
+
   const say = (text, kind = "") => {
     stateEl.textContent = text;
     stateEl.className = `state ${kind}`;
@@ -17,7 +20,7 @@
   const api = async (path, options = {}) => {
     const res = await fetch(path, { credentials: "same-origin", ...options });
     if (res.status === 401) {
-      location.href = "/studio/";
+      showGate("Сессия истекла — войдите заново.");
       throw new Error("Сессия истекла, войдите заново.");
     }
     const data = await res.json().catch(() => ({ ok: false, error: "Нет ответа от сервера" }));
@@ -382,19 +385,65 @@
     if (dirty) event.preventDefault();
   });
 
+  // ---------- вход ----------
+  const gate = $("gate");
+  const shell = $("app");
+
+  showGate = (message = "") => {
+    gate.hidden = false;
+    shell.hidden = true;
+    $("gate-status").textContent = message;
+    document.body.classList.remove("app");
+    $("password").focus();
+  };
+
+  showApp = async () => {
+    gate.hidden = true;
+    shell.hidden = false;
+    document.body.classList.add("app");
+    await loadList();
+    if (articles.length) await openArticle(articles[0].slug);
+    else newArticle();
+  };
+
+  $("login-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = $("gate-status");
+    const button = event.target.querySelector("button");
+    const password = $("password").value;
+    if (!password) {
+      status.textContent = "Введите пароль.";
+      return;
+    }
+    button.disabled = true;
+    status.textContent = "Проверяем…";
+    try {
+      const res = await fetch("/studio/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json().catch(() => ({ ok: false, error: "Нет ответа от сервера" }));
+      if (!data.ok) throw new Error(data.error || "Не удалось войти.");
+      $("password").value = "";
+      await showApp();
+    } catch (error) {
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+
   // ---------- старт ----------
   (async () => {
     try {
       const session = await api("/studio/api/session");
       if (!session.authenticated) {
-        location.href = "/studio/";
+        showGate();
         return;
       }
-      await loadList();
-      if (articles.length) await openArticle(articles[0].slug);
-      else newArticle();
+      await showApp();
     } catch (error) {
-      say(error.message, "err");
+      showGate(error.message);
     }
   })();
 })();

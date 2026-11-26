@@ -321,7 +321,7 @@ await check("переименование slug: новый файл + удале
   assert(calls.some((c) => c.method === "DELETE" && c.url.includes("test-article.md")), "старый файл не удалён");
 });
 
-await check("страница /studio без сессии отдаёт экран входа", async () => {
+await check("страница /studio отдаётся ассетом (вход в том же документе)", async () => {
   mockGithub();
   const response = await studio("/studio/");
   const html = await response.text();
