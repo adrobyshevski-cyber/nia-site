@@ -17,10 +17,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Зависимости сборки insights
+        run: python -m pip install --quiet -r requirements.txt
+
+      - name: public/ соответствует content/articles
+        run: |
+          python scripts/build-insights.py
+          if ! git diff --quiet -- public; then
+            echo "::error title=Сборка устарела::Запустите python scripts/build-insights.py и закоммитьте изменения в public/"
+            git diff --stat -- public
+            exit 1
+          fi
+
       - name: Тесты обработчика заявок
         run: node scripts/check-lead.mjs
+
       - name: Ссылки, формы, canonical/OG/sitemap
-        run: python3 scripts/check-links.py
+        run: python scripts/check-links.py
 
   deploy:
     needs: check
