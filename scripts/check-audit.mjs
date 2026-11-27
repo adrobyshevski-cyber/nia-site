@@ -195,6 +195,26 @@ await check("лимит 8 запусков с одного IP", async () => {
   assert(ninth.status === 429 && data.code === "ip_limit", `ожидали ip_limit, получили ${ninth.status} ${data.code}`);
 });
 
+await check("с меткой события лимит IP выше: 12 запусков с одного адреса", async () => {
+  const env = await freshEnv();
+  for (let i = 0; i < 12; i += 1) {
+    const res = await call(env, "/api/audit/start", {
+      method: "POST",
+      body: { url: `https://guest${i}.example`, ev: "event-c" },
+    });
+    assert(res.status === 200, `запуск ${i + 1} упал: ${res.status}`);
+  }
+});
+
+await check("без метки события лимит остаётся 8 в час", async () => {
+  const env = await freshEnv();
+  for (let i = 0; i < 8; i += 1) {
+    await call(env, "/api/audit/start", { method: "POST", body: { url: `https://site${i}.example` } });
+  }
+  const res = await call(env, "/api/audit/start", { method: "POST", body: { url: "https://site9.example" } });
+  assert(res.status === 429, `ожидали 429, получили ${res.status}`);
+});
+
 await check("мусорный адрес сайта → 400", async () => {
   const env = await freshEnv();
   const res = await call(env, "/api/audit/start", { method: "POST", body: { url: "localhost" } });

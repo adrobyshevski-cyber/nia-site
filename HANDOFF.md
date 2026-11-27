@@ -2,52 +2,74 @@
 
 Документ для того, кто продолжит работу: что где лежит, как деплоится, что уже проверено, где грабли. Обновляется при каждом значимом изменении.
 
-Последнее обновление: **2026-11-26**, версия Worker'а `9ab85472` + правки студии (см. историю коммитов).
+- Последнее обновление: **2026-11-27**
+- Версия Worker'а: `ba4ec5fc`
+- Локальный репозиторий: `C:\work\nia_site`, ветка `main`
+- Сервис аудита: `C:\work\narrative_audit` (StoryAudit), `main` = `b63755b`
+- Ротация `CLOUDFLARE_API_TOKEN`: 2026-11-26 (Roll в dash), предыдущее значение отозвано (`401`)
 
-Ротация `CLOUDFLARE_API_TOKEN`: **2026-11-26** (Roll в dash). Предыдущее значение отозвано и отвечает `401`.
+**Следующая сессия начинается с CRM на D1 — см. раздел 12.**
 
 ---
 
 ## 1. Что это
 
-Сайт агентства **narrativeintelligence.ru** — статика + один Worker для приёма заявок и заголовков.
+Сайт агентства **narrativeintelligence.ru** — статика на edge + один Worker: приём заявок, редакция статей, демо-аудит с QR и раздача отчётов.
 
 | Параметр | Значение |
 |---|---|
 | Хостинг | **Cloudflare Workers Static Assets** (не Pages!) |
 | Worker | `broad-paper-a8b7` — имя менять нельзя, к нему привязаны домены |
-| Домены | `narrativeintelligence.ru`, `www.narrativeintelligence.ru` |
+| Домены | `narrativeintelligence.ru`, `www.narrativeintelligence.ru`, `audit.narrativeintelligence.ru` (туннель) |
 | Аккаунт Cloudflare | `9c43f65513791f4aaf18522bf44c7d28` (a.drobyshevski@gmail.com) |
 | Репозиторий | `github.com/adrobyshevski-cyber/nia-site`, ветка `main` |
+| KV `AUDIT_KV` | namespace `nia-audit`, id `d4bb0d870ea84be287c6b7e90bc5376a` |
 | Сборка | нет, кроме раздела insights (Markdown → HTML) |
 | Язык контента | русский, `lang="ru"` |
 
 ## 2. Архитектура
 
 ```
-public/                      ← корень ассетов, отдаётся как есть
-  index.html                 лендинг
-  404.html                   страница ошибки (not_found_handling: 404-page)
-  styles.css script.js lead.js
-  _redirects robots.txt sitemap.xml
-  og/                        OG-картинки 1200×630
-  audit/index.html           Narrative Audit + форма заявки
-  brand/index.html           Dissolved Brand
-  insights/                  ← ГЕНЕРИРУЕТСЯ, руками не править
-    index.html articles.json insights.css
-    narrative-debt/ narrative-capital/ dissolved-branding/
-  practices/                 6 страниц; audit.html и brand.html — meta-refresh заглушки
+public/                        ← корень ассетов, отдаётся как есть
+  index.html                    лендинг
+  404.html                      404 (not_found_handling: 404-page)
+  styles.css script.js lead.js  общие стили, меню, обработчик форм заявок
+  _redirects robots.txt sitemap.xml site.webmanifest
+  favicon.svg favicon-32.png apple-touch-icon.png icon-512.png
+  og/                           OG-картинки 1200×630
+  audit/index.html              Narrative Audit + форма заявки
+  brand/index.html              Dissolved Brand
+  insights/                     ← ГЕНЕРИРУЕТСЯ из content/articles
+  practices/                    6 страниц; audit.html и brand.html — meta-refresh заглушки
+  demo/                         /demo: экспресс-аудит для QR (index.html, demo.css, demo.js)
+  privacy/index.html            политика обработки ПД (черновик, плейсхолдеры реквизитов)
+  studio/                       админка редакции (index.html, studio.css, studio.js, import.js)
 
-content/articles/*.md        ← ИСТОЧНИК ПРАВДЫ для insights
-templates/insights-article.html   шаблон статьи (форма, canonical, OG внутри)
-lib/lead.js                  валидация заявки + Telegram
-worker.js                    роутинг: /api/* → lib/lead.js, остальное → env.ASSETS + заголовки
-wrangler.jsonc               конфиг Worker'а и ассетов
-scripts/build-insights.py    сборка insights из Markdown
-scripts/check-lead.mjs       16 тестов обработчика (без сети)
-scripts/check-links.py       ссылки, редиректы, формы, canonical/OG/sitemap, дубли id
-scripts/make-og.py           перегенерация OG-картинок (Pillow)
-_archive/                    исходные zip-архивы (в git не попадают)
+content/articles/*.md           ← ИСТОЧНИК ПРАВДЫ для insights
+templates/insights-article.html шаблон статьи (форма заявки, canonical, OG внутри)
+
+lib/lead.js                     заявки: валидация + Telegram (текст и файлы)
+lib/audit.js                    /demo: лимиты, квота события, задачи в KV, /r/<token>/
+lib/audit-engine.js             адаптер движка: stub | storyaudit HTTP
+lib/auth.js                     пароль /studio, подписанная cookie, лимит попыток
+lib/frontmatter.js              разбор и сборка файла статьи
+lib/github.js                   GitHub Contents API: чтение, коммит, удаление
+lib/studio.js                   маршруты /studio/*
+
+worker.js                       роутинг + security-заголовки и политика кэша
+wrangler.jsonc                  конфиг Worker'а, ассетов, KV и переменных движка
+
+scripts/build-insights.py       сборка insights из Markdown
+scripts/check-lead.mjs          20 тестов заявок
+scripts/check-studio.mjs        19 тестов студии
+scripts/check-import.mjs        12 тестов импорта статьи
+scripts/check-audit.mjs         33 теста /demo
+scripts/check-links.py          ссылки, формы, SEO, дубли id, контракт клиент↔сервер
+scripts/make-og.py              OG-картинки
+scripts/make-icons.py           favicon и иконки
+scripts/make-qr.py              QR для ивентов
+scripts/make-admin-password.py  пароль и хеш для /studio
+_archive/                       исходные zip-архивы (в git не попадают)
 ```
 
 ## 3. Заявки с сайта
@@ -61,17 +83,11 @@ _archive/                    исходные zip-архивы (в git не по
 
 Почему email не через сервер: бесплатный тариф Web3Forms отвечает `This method is not allowed. Use our API in client side or contact support with server IP address (Pro plan is required)`. Проверено реальным запросом.
 
-Ограничения бесплатного тарифа Web3Forms (по официальной документации):
+Ограничения бесплатного Web3Forms: **Restrict to Domain — Pro** (ограничить домен нельзя), серверный антиспам включён, honeypot `botcheck` есть но объявлен устаревшим, hCaptcha бесплатно, лимит 250 заявок/мес.
 
-- **Restrict to Domain — Pro-функция**, недоступна. Ключ публичный, ограничить домен нельзя.
-- серверный антиспам включён на всех тарифах
-- honeypot `botcheck` поддерживается, но авторы называют метод устаревшим
-- hCaptcha — бесплатно; reCaptcha и Turnstile — Pro
-- лимит 250 заявок/мес
+После отправки показывается сервисное окно «Заявка отправлена. В ближайшее время с вами свяжутся». Если форма ушла обычным POST (JS не успел подписаться), Worker отвечает `303` на `referer?sent=1` — сырой JSON пользователь не увидит.
 
-План при появлении спама: перевыпустить ключ в кабинете Web3Forms → заменить константу в `public/lead.js` → деплой. Если поток станет постоянным — переехать на Resend (серверная отправка, ключ в секретах, Turnstile бесплатно).
-
-Защита в коде: honeypot, минимальное время заполнения 1.5 с, серверная валидация email/полей, HTML-экранирование в уведомлении.
+План при спаме: перевыпустить ключ Web3Forms → заменить константу в `public/lead.js` → деплой. При постоянном потоке — Resend (серверная отправка, ключ в секретах, Turnstile бесплатно).
 
 ## 4. Редакционный процесс
 
@@ -84,17 +100,15 @@ python scripts/build-insights.py
 git commit -am "статья: <название>" && git push     # дальше CI задеплоит
 ```
 
-Сборка обновляет: страницу статьи, каталог, `articles.json`, блок «NIA / INSIGHTS» на главной, `sitemap.xml`. Страницы удалённых статей убираются автоматически — но только файлы с меткой `<!-- generated by scripts/build-insights.py -->`.
+Сборка обновляет страницу статьи, каталог, `articles.json`, блок «NIA / INSIGHTS» на главной и `sitemap.xml`. Страницы удалённых статей убираются по метке `<!-- generated by scripts/build-insights.py -->`.
 
-Обязательные поля front matter: `title`, `slug`, `description`, `lead`, `category`, `date` (`YYYY-MM-DD`), `author`, `practice`, `practice_label`. Необязательные: `category_ru`, `featured`, `draft`.
-
-**Черновики** — `draft: true` в `main`. Файл в репозитории, нигде не публикуется. Короткий текст в черновике допустим, у опубликованной статьи минимум 150 символов.
+Обязательные поля: `title`, `slug`, `description`, `lead`, `category`, `date` (`YYYY-MM-DD`), `author`, `practice`, `practice_label`. Необязательные: `category_ru`, `featured`, `draft`.
 
 Требования: Python 3.10+, `pip install -r requirements.txt` (mistune, PyYAML, beautifulsoup4).
 
 ## 5. Деплой
 
-**Автоматически** — пуш в `main`. GitHub Actions: `check` (сборка актуальна → тесты заявок → ссылки/SEO) → `deploy` (`npx wrangler deploy`). Ручной запуск: Actions → Deploy → Run workflow.
+**Автоматически** — пуш в `main`. GitHub Actions: `check` (сборка актуальна → тесты заявок → студия → импорт → /demo → ссылки/SEO) → `deploy` (`npx wrangler deploy`). Ручной запуск: Actions → Deploy → Run workflow.
 
 **Вручную:**
 
@@ -102,45 +116,41 @@ git commit -am "статья: <название>" && git push     # дальше
 CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 npx wrangler deploy
 ```
 
-Проверить, что версия живая:
-
-```bash
-npx wrangler tail                     # логи, если заявка не дошла
-npx wrangler deployments list
-```
-
-Важно: `wrangler deploy` пишет `No targets deployed` — это нормально, триггеры у нас не routes, а custom domains.
+`wrangler deploy` пишет `No targets deployed` — это нормально: триггеры не routes, а custom domains.
 
 ## 6. Секреты и доступы
 
 | Где | Имя | Назначение |
 |---|---|---|
-| Worker secrets | `TELEGRAM_BOT_TOKEN` | уведомления о заявках |
+| Worker secrets | `TELEGRAM_BOT_TOKEN` | уведомления о заявках и отчёты файлом |
 | Worker secrets | `TELEGRAM_CHAT_ID` | `360726431`, личный чат `@droal1111` |
+| Worker secrets | `ADMIN_PASSWORD_HASH` | вход в `/studio` и `/demo`-админку: `sha256$salt$hash` |
+| Worker secrets | `SESSION_SECRET` | HMAC для cookie сессии и хешей лимитов |
+| Worker secrets | `GITHUB_TOKEN` | PAT (fine-grained, Contents: R/W) для публикации статей |
+| Worker secrets | `AUDIT_INTERNAL_TOKEN` | `PUBLIC_INTERNAL_TOKEN` из StoryAudit, заголовок `x-internal-token` |
 | GitHub Actions | `CLOUDFLARE_API_TOKEN` | деплой из CI (`Account · Workers Scripts · Edit`), ротирован 2026-11-26 |
 | GitHub Actions | `CLOUDFLARE_ACCOUNT_ID` | `9c43f65513791f4aaf18522bf44c7d28` |
-| Worker secrets | `ADMIN_PASSWORD_HASH` | вход в /studio: `sha256$salt$hash` |
-| Worker secrets | `SESSION_SECRET` | HMAC для cookie сессии |
-| Worker secrets | `GITHUB_TOKEN` | PAT (fine-grained, Contents: R/W) для публикации статей |
 | `public/lead.js` | `WEB3FORMS_KEY` | email-канал (публичный) |
+| `wrangler.jsonc` vars | `AUDIT_ENGINE`, `AUDIT_SERVICE_URL` | режим движка и адрес StoryAudit |
 
-Значений в репозитории нет намеренно. Ставить секреты Worker'а:
+Значений в репозитории нет. Ставить: `npx wrangler secret put <ИМЯ>`.
 
-```bash
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-```
+Телеграм-бот `@niagencybot`, токен в `@BotFather`, `chat_id` — через `https://api.telegram.org/bot<TOKEN>/getUpdates`.
 
-Телеграм-бот `@niagencybot`, токен выпускается в `@BotFather`. `chat_id` — через `https://api.telegram.org/bot<TOKEN>/getUpdates` после сообщения боту.
+Сменить пароль админки: `python scripts/make-admin-password.py` → `npx wrangler secret put ADMIN_PASSWORD_HASH`.
 
 ## 7. Что проверено и чем
 
 | Проверка | Запуск | Покрытие |
 |---|---|---|
-| Обработчик заявок | `node scripts/check-lead.mjs` | 16 сценариев: валидация, honeypot, formData без JS, ошибки каналов, роутинг Worker'а |
-| Статика и SEO | `python scripts/check-links.py` | 150+ ссылок, редиректы, формы, дубли id, canonical, og:image, sitemap ↔ noindex, картинки |
+| Заявки | `node scripts/check-lead.mjs` | 20 сценариев: валидация, honeypot, formData без JS, 303 для нативной отправки, www→apex, ошибки каналов |
+| Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
+| Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
+| `/demo` | `node scripts/check-audit.mjs` | 33: URL/телефон, лимиты устройства и IP, квота события, маппинг состояний StoryAudit, архив отчёта, HTML-файл в Telegram, деградация при сбоях |
+| Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
 
-Всё это гоняется в CI до деплоя. Локальная приёмка страниц: `npx wrangler dev` (статика + `/api/lead`), для проверки на реальном edge — `npx wrangler dev --remote` (там настоящие секреты).
+Всего 84 автотеста, гоняются в CI до деплоя. Локальная приёмка: `npx wrangler dev`; проверка на реальном edge с настоящими секретами — `npx wrangler dev --remote`.
 
 ## 8. Админка /studio
 
@@ -151,140 +161,161 @@ lib/auth.js         пароль, cookie-сессия, лимит попыток
 lib/frontmatter.js  разбор/сборка файла статьи
 lib/github.js       Contents API: чтение, коммит, удаление
 lib/studio.js       маршруты /studio/*
-public/studio/      страница входа и приложение
+public/studio/      вход и приложение; import.js — импорт .md/.txt
 ```
 
-Публикация = коммит в `content/articles/<slug>.md` → CI собирает и деплоит. `public/insights/` руками по-прежнему не правится.
+Публикация = коммит в `content/articles/<slug>.md`, дальше CI собирает и деплоит.
 
-Импорт: `public/studio/import.js` — разбор `.md`/`.txt` (front matter → «паспорт» `Ключ: значение` → эвристики: H1, первый абзац, транслит в slug с дедупликацией, дата сегодня, категория по ключевым словам). Отдаёт `{frontMatter, body, sources, warnings}`; студия подсвечивает поля, выведенные автоматически, и показывает предупреждения. `.docx` не поддерживается намеренно: разбор Word в браузере требует mammoth (405 КБ) — отложено до реальной потребности.
+Импорт: front matter → «паспорт» `Ключ: значение` → эвристики (H1, первый абзац, транслит в slug с дедупликацией, дата, категория по ключевым словам). Студия подсвечивает автоматически выведенные поля и показывает предупреждения. `.docx` не поддерживается намеренно (mammoth 405 КБ) — отложено.
 
-Безопасность: `sha256(salt ‖ пароль)` вместо PBKDF2 (лимит 10 мс CPU на бесплатном плане; компенсируется случайным паролем ~99 бит), cookie `HttpOnly; Secure; SameSite=Strict` с HMAC-подписью и TTL 12 ч, лимит 8 попыток за 15 минут на IP, проверка `Origin` на мутации, токен GitHub только на сервере, `noindex` + `X-Robots-Tag` + `Disallow: /studio/`.
-
-Сменить пароль: `python scripts/make-admin-password.py` → `npx wrangler secret put ADMIN_PASSWORD_HASH`.
-
-Тесты: `node scripts/check-studio.mjs` (19 сценариев, сеть подменена заглушкой).
+Безопасность: `sha256(salt ‖ пароль)` вместо PBKDF2 (лимит 10 мс CPU на free-плане; компенсируется случайным паролем ~99 бит), cookie `HttpOnly; Secure; SameSite=Strict` на 12 ч, 8 попыток за 15 минут на IP, проверка `Origin` на мутации, GitHub-токен только на сервере, `noindex` + `X-Robots-Tag` + `Disallow: /studio/`.
 
 ## 9. SEO
 
-Сделано: canonical и OG/Twitter на всех индексируемых страницах, JSON-LD (`Organization` + `WebSite` на главной, `Article` + `BreadcrumbList` на статьях), `sitemap.xml` из сборки, `robots.txt` с `Disallow: /api/` и `/studio`, 301 с `www` на apex в `worker.js`, иконки и `site.webmanifest` (`scripts/make-icons.py`), `noindex` на заглушках практик.
+Canonical и OG/Twitter на всех индексируемых страницах, JSON-LD (`Organization` + `WebSite` на главной, `Article` + `BreadcrumbList` на статьях), `sitemap.xml` из сборки, `robots.txt` с `Disallow: /api/`, `/studio`, `/demo`, `/privacy`, 301 с `www` на apex в `worker.js`, иконки и `site.webmanifest`, `noindex` на заглушках практик.
 
-Остаётся владельцу (требует личного кабинета):
+Остаётся владельцу:
 
 | Задача | Что нужно |
 |---|---|
-| Google Search Console | подтвердить домен (DNS TXT или HTML-файл), отправить `sitemap.xml` |
-| Яндекс Вебмастер | подтвердить домен (TXT/META/файл), указать регион, отправить sitemap |
-| Cloudflare Web Analytics | включить в дашборде зоны — даёт реальные Core Web Vitals без cookie |
-| Доступность из РФ/Беларуси | проверить с внешних сервисов (2ip, isitblocked) — из среды разработки домен блокируется локальным фильтром, это не показатель |
+| Google Search Console | подтвердить домен (TXT или HTML-файл), отправить `sitemap.xml` |
+| Яндекс Вебмастер | подтвердить домен, указать регион, отправить sitemap |
+| Cloudflare Web Analytics | включить в дашборде зоны — реальные Core Web Vitals без cookie |
 
 ## 10. /demo — экспресс-аудит для ивентов
 
-Страница `public/demo/` + `lib/audit.js` + `lib/audit-engine.js`. Лимиты: устройство (cookie год) — 1, IP — 8 в час, email — 1 на 30 дней. Состояние задач в KV `AUDIT_KV` (id namespace `d4bb0d870ea84be287c6b7e90bc5376a`), контакты дублируются в Telegram.
+`public/demo/` + `lib/audit.js` + `lib/audit-engine.js`. Публичная воронка: адрес сайта → «аудит в работе» → «аудит готов» → имя, телефон, email, согласие → ссылка на отчёт. Страница `noindex`, canonical на `/audit/`, `Disallow` в robots.
 
-Режим движка — `AUDIT_ENGINE`: `stub` (отладка воронки, отчёта нет) или `live`.
+### Лимиты
 
-**Live-режим (StoryAudit работает локально через Cloudflare Tunnel):**
+| Ключ | Правило |
+|---|---|
+| устройство (cookie на год) | 1 аудит |
+| IP без метки события | 8 запусков в час |
+| IP с меткой `?ev=` | 30 в час — на ивенте все гости за одним NAT |
+| email | 1 отчёт на адрес, 30 дней |
+| событие | 20 аудитов на метку `?ev=` (7 дней); при исчерпании заявка создаётся в статусе `manual` без движка |
+
+### Движок
+
+`AUDIT_ENGINE` в `wrangler.jsonc`: `stub` (отладка воронки, отчёта нет) или `live` + `AUDIT_SERVICE_URL=http://audit…`.
+
+StoryAudit работает **локально** и смотрит наружу через Cloudflare Tunnel:
 
 ```
-туннель        cloudflared tunnel run storyaudit   (protocol: http2, QUIC режется провайдером)
-сервис         powershell -File scripts\start-public.ps1  (в C:\work\narrative_audit)
-конфиг         C:\Users\User\.cloudflared\config.yml, tunnel 91b9d5f1-…
-домен          audit.narrativeintelligence.ru → CNAME на туннель
+сервис      powershell -File scripts\start-public.ps1   (в C:\work\narrative_audit)
+туннель     cloudflared tunnel run storyaudit           (protocol: http2, QUIC режется провайдером)
+конфиг      C:\Users\User\.cloudflared\config.yml, tunnel 91b9d5f1-…
+домен       audit.narrativeintelligence.ru → CNAME на туннель
 ```
 
-Проверено 2026-11-27: заявка из `/demo` создаётся в StoryAudit, скан проходит,
-состояние доходит до нашего Worker, отчёт забирается и отдаётся на `/r/<token>/`
-(73 КБ HTML со встроенным CSS, PDF 192 КБ через прокси).
+Контракт (реализован в StoryAudit, PR #1–#4):
 
-Отчёт запрашивается как `?inline=1&brief=1` — короткая версия StoryAudit:
-резюме + 5 находок + 5 рекомендаций + врезка «Полная версия содержит 17 разделов»,
-разделы перенумерованы 1–3, методология называется NIA Narrative Audit v1.1.
-Размер ~19 КБ против 103 КБ полного. Полный отчёт доступен без `brief` и остаётся
-продуктом для платных клиентов.
+```
+POST /audit (form: website, consent=on)
+  заголовки: accept: application/json, x-internal-token, x-forwarded-for, x-client-ip
+  → 201 {token, state_url, report_url}
+GET /audit/{token}/state   → {state, error}
+GET /audit/{token}/report?inline=1[&brief=1] → самодостаточный HTML
+```
 
-Отчёты отдаём **только HTML**: при выдаче контактов оператору в Telegram уходит
-файл `narrative-audit-<домен>.html` (полная версия, для архива) со встроенными
-стилями. PDF из короткой версии убран; в полном отчёте ссылка на PDF остаётся.
+Состояния сервиса → наши: `ingesting`→queued, `analyzing`→running, `review`→review, `ready`→done, `failed|rejected`→failed, `expired`→expired.
 
-Хранение:
+### Отчёты
 
-| Ключ KV | Что | Срок |
+| Что | Где | Срок |
 |---|---|---|
-| `report:<token>` | короткий отчёт — ссылка для клиента `/r/<token>/` | 30 дней |
-| `report-full:<token>` | полный отчёт — архив оператора `/r/<token>/full/` | 180 дней |
+| Короткий отчёт (резюме + 5 находок + 5 рекомендаций, ~19 КБ) | `/r/<token>/` | 30 дней |
+| Полный отчёт (17 разделов + приложения A/B, ~100–137 КБ) | `/r/<token>/full/` | 180 дней |
+| PDF | `/r/<token>/report.pdf` (прокси) | пока жив сервис |
 
-Полный отчёт доступен и спустя месяцы после демо: его можно выслать клиенту
-после личной встречи, даже если сервис недоступен или скан почищен по retention.
+В коротком отчёте разделы перенумерованы 1–3, есть врезка «Полная версия содержит 17 разделов», методология называется **NIA Narrative Audit v1.1**, кнопки PDF нет. Полный отчёт остаётся продуктом для платных клиентов.
 
-Особенности этой схемы:
+Отчёты отдаём **только как HTML**: при выдаче контактов оператору в Telegram уходит файл `narrative-audit-<домен>.html` — полная версия (sendDocument), в подписи ссылки на короткую и полную версии.
 
-- скан идёт из домашней сети, поэтому сайты, недоступные из неё (включая сам
-  narrativeintelligence.ru из-за фильтра провайдера), падают на этапе INGEST;
-- отчёт после скана попадает в `review` и становится `ready` только после
-  подтверждения Stage Gate в `/ui/scans` — на ивенте это ручная операция на
-  каждый аудит;
-- компьютер должен быть включён: сервис, воркер и туннель живут на нём.
+### QR
 
-
+```bash
+python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
+# → qr/demo-spb-2026.png и .svg (в git не попадают)
 ```
-wrangler.jsonc   AUDIT_ENGINE = "live"
-                 AUDIT_SERVICE_URL = "https://audit.narrativeintelligence.ru"
-секрет воркера   AUDIT_INTERNAL_TOKEN = <PUBLIC_INTERNAL_TOKEN из StoryAudit>
-```
-
-StoryAudit вызывает `POST /audit` (form: website, consent=on) с `accept: application/json`,
-`x-internal-token`, `x-forwarded-for: <IP клиента>`; получает `{token}`; опрашивает
-`GET /audit/{token}/state`; при `ready` забирает `GET /audit/{token}/report?inline=1`
-(самодостаточный HTML) и кладёт в KV `report:<наш токен>`. Отчёт отдаётся на
-`/r/<token>/`, PDF проксируется через `/r/<token>/report.pdf`, ссылки на домен
-сервиса переписываются на наши. Ссылка открывается только после контактов.
-
-Состояния сервиса → наши: `ingesting`→queued, `analyzing`→running, `review`→review,
-`ready`→done, `failed|rejected`→failed, `expired`→expired. Квота события — 20 на
-метку `?ev=`; при исчерпании заявка создаётся в статусе `manual` без движка.
-
-QR: `python scripts/make-qr.py --ev <метка> --caption "..."` → `qr/demo-<метка>.png|svg`.
-
-Страница и политика ПД — `noindex`, canonical на `/audit/`, `Disallow` в robots. В политике `/privacy/` остались плейсхолдеры реквизитов — заполнить до публичного показа.
 
 ## 11. Грабли, на которые уже наступили
 
 | Симптом | Причина | Решение |
 |---|---|---|
-| `wrangler deploy` не применял заголовки | при `run_worker_first: ["/api/*"]` ассеты отдаёт edge **минуя Worker**, `harden()` не вызывался | `run_worker_first: true` |
-| Формы не отправляли письма | Web3Forms на free не принимает запросы с серверов | email отправляется из браузера, Telegram — из Worker'а |
-| Весь файл в диффе после сборки | `write_text()` на Windows пишет CRLF | функция `write()` с `newline="\n"`; в `.gitattributes` — `* -text` |
-| В сгенерированных статьях чужие `id` и дата | в шаблоне остались значения первой статьи | токены `{{UID}}`, `{{DATE}}` |
-| CI: `Missing entry-point` | `wrangler-action@v3` тянул wrangler 2.x, а он не читает `wrangler.jsonc` | `npm install wrangler@4` + `npx wrangler deploy` |
-| `wrangler whoami` → `10001` | повторный `wrangler login --device` отозвал предыдущий OAuth-токен, новый не сохранился | использовать API-токен: `CLOUDFLARE_API_TOKEN=...` |
-| `*.workers.dev` дублировал сайт | маршрут workers.dev включён по умолчанию | `workers_dev: false`, `preview_urls: false` |
-| `_headers` не работает | Workers Assets не поддерживает `_headers` (в отличие от Pages) | заголовки в `worker.js` |
-| Страницы практик ранжировались как основные | заглушки были индексируемыми | `noindex, follow` на `practices/culture|economics|lab|strategy` |
-| Вход в /studio падал с `offset is out of bounds` | длина массива считалась по символам, а пароль кодировался в UTF-8 (кириллица) | считать длину `encoder.encode(password)` |
-| `check-links.py` не видел `noindex` | в регулярке вместо `` оказался символ backspace (``) | переписано на разбор meta-тегов через `findall` |
-| `/studio/login.html` отдавал 307 вместо страницы | Workers Assets с `auto-trailing-slash` редиректит `*.html` на путь без расширения | вход и приложение в одном `index.html`, состояние переключает JS |
-| В списке студии битая запись `_example-draft` | файл-заготовка начинается с `_`, а slug-валидатор такое не пропускает | файлы на `_` не считаются статьями и не показываются |
-| Вход на проде отвечал `403 Запрос с чужого origin` | CSRF-проверка сравнивала Origin только с `request.url`, а на custom domain за прокси хост запроса может отличаться | сравнивать ещё и с `Host`, плюс белый список `narrativeintelligence.ru` / `www` |
-| Кириллица в файле превращалась в `�` | не баг приложения: так отправил curl из Windows-шелла | проверять UTF-8 запросами из Python (`urllib`), а не через curl с не-ASCII в теле |
+| `wrangler deploy` не применял заголовки | при `run_worker_first: ["/api/*"]` ассеты отдаёт edge **минуя Worker** | `run_worker_first: true` |
+| Формы не отправляли письма | Web3Forms на free не принимает запросы с серверов | email из браузера, Telegram из Worker'а |
+| Весь файл в диффе после сборки | `write_text()` на Windows пишет CRLF | `write()` с `newline="\n"`, `.gitattributes` — `* -text` |
+| В сгенерированных статьях чужие id и дата | в шаблоне остались значения первой статьи | токены `{{UID}}`, `{{DATE}}` |
+| CI: `Missing entry-point` | `wrangler-action@v3` тянул wrangler 2.x, он не читает `wrangler.jsonc` | `npm install wrangler@4` + `npx wrangler deploy` |
+| `wrangler whoami` → `10001` | повторный `wrangler login --device` отозвал прежний OAuth-токен | API-токен: `CLOUDFLARE_API_TOKEN=...` |
+| `*.workers.dev` дублировал сайт | маршрут включён по умолчанию | `workers_dev: false`, `preview_urls: false` |
+| `_headers` не работает | Workers Assets не поддерживает `_headers` | заголовки в `worker.js` |
+| Заглушки практик ранжировались | были индексируемыми | `noindex, follow` |
+| Вход в `/studio` → `offset is out of bounds` | длина считалась по символам, пароль кодировался в UTF-8 | `encoder.encode(password).length` |
+| `check-links.py` не видел `noindex` | в регулярке вместо `\b` оказался символ backspace | разбор meta-тегов через `findall` |
+| `/studio/login.html` отдавал 307 | `auto-trailing-slash` редиректит `*.html` | вход и приложение в одном `index.html` |
+| В списке студии битая запись `_example-draft` | файлы на `_` не проходят slug-валидатор | файлы на `_` не считаются статьями |
+| Вход на проде → `403 чужой origin` | CSRF-проверка сравнивала Origin только с `request.url` | сравнивать с `Host` и белым списком доменов |
+| Кириллица в файле превращалась в `�` | так отправлял curl из Windows-шелла | UTF-8 проверять через Python `urllib` |
+| Cloudflared: `failed to dial quic` | провайдер режет UDP/7844 | `protocol: http2` в конфиге туннеля |
+| `cert.pem` не подхватывался | файл скачался в `Downloads` | положить в `C:\Users\User\.cloudflared\cert.pem` |
+| Ссылка на отчёт «не открывается» | фильтрация домена у провайдера, а не ошибка приложения | проверять через edge, отдавать отчёт файлом в Telegram |
+| Отчёт в `review` после скана | публикацию закрывает Stage Gate | подтвердить в `/ui/scans` или включить авто-публикацию |
 
-## 12. Бэклог
+## 12. CRM — следующая сессия
+
+Задача: видеть контакты клиента, этап работы и услугу. Решение: **`/crm` в этом же Worker, хранилище — Cloudflare D1** (SQLite, бесплатно 5 ГБ). Отдельный проект не нужен: авторизация, домен, CI и данные уже рядом.
+
+**Блокер:** API-токену не хватает права `Account · D1 · Edit` (сейчас `401` на `/d1/database`). Добавить: dash.cloudflare.com/profile/api-tokens → `nia-site-deploy` → Edit → D1 → Edit.
+
+**Срочно до старта:** контакты из `/demo` лежат в `job:<id>` с TTL **6 часов**, то есть заявки теряются. CRM должна писать лиды в D1 (или хотя бы `lead:<id>` в KV на 90 дней).
+
+Схема (минимум):
+
+```
+leads       id, created_at, source, name, email, phone, site, event, report_token, status, consent_at
+deals       id, lead_id, service, stage, next_step, next_step_at
+activities  id, lead_id, deal_id, at, kind, text
+```
+
+`source`: `demo` | `audit_form` | `manual`. `service`: audit, brand, culture, economics, strategy, lab.
+`stage`: `new → contacted → qualified → proposal → won | lost` (+ `paused`).
+
+Поток: `/api/audit/reveal` и `/api/lead` пишут лид автоматически, `/demo` привязывает `report_token` и `event`. Экраны: список с фильтрами, карточка лида (контакты, отчёт `/r/<token>/full/`, сделки, заметки, смена стадии), напоминания в Telegram по `next_step_at`, сводка по событиям.
+
+Фазы: 1 — D1 + схема + автозапись + список и карточка (4–6 ч); 2 — сделки по услугам, заметки, напоминания (3–4 ч); 3 — сводка, CSV, поиск (2–3 ч).
+
+Открытые вопросы к владельцу: стадии воронки, срок хранения данных (152-ФЗ), доступ (только владелец или отдельная роль).
+
+## 13. Бэклог
 
 | Задача | Статус |
 |---|---|
-| Фаза 0: MD как источник правды | **готово** (`3dd2d1a`) |
+| MD как источник правды для insights | **готово** (`3dd2d1a`) |
 | Автодеплой по пушу | **готово** (`5afb571`) |
-| Перевыпустить `CLOUDFLARE_API_TOKEN` | **готово** 2026-11-26: Roll, секрет обновлён, CI проверен |
-| Фаза 1: админка `/studio` — пароль, список статей, редактор с превью | **готово** |
-| Фаза 2: публикация из админки — коммит через GitHub API → CI | **готово** (фазы 1–2 сделаны вместе) |
+| Ротация `CLOUDFLARE_API_TOKEN` | **готово** 2026-11-26 |
+| `/studio`: вход, редактор, публикация коммитом | **готово** |
+| Импорт статьи из `.md`/`.txt` | **готово** |
+| `/demo`: воронка, лимиты, квота события | **готово** |
+| `/demo`: живой StoryAudit через туннель | **готово** (2026-11-27) |
+| Короткий отчёт на стенде, полный в архив | **готово** |
+| NIA-брендинг в отчёте, приложения C/D убраны | **готово** |
+| **CRM на D1** | **следующая сессия**, нужен `D1: Edit` |
+| Авто-публикация отчётов для публичных заявок | решение не принято: сейчас каждый отчёт подтверждается вручную |
+| Дедупликация источников в реестре S01/S02 | не начато (дубли одного домена) |
+| Конкурентный раздел: до 2 сайтов из `/demo` | не начато |
+| Категория и география в паспорте отчёта | сервис не выводит их из корпуса |
+| Переезд на VPS (сервис не должен зависеть от домашней сети) | обсуждено, не начато |
+| Resend: доставка отчёта клиенту письмом | по необходимости |
 | RSS для insights | не начато |
-| /demo: реальный движок аудита и доставка отчёта | ждёт доступа к сервису из другого проекта |
-| Импорт `.docx` (mammoth, ленивая загрузка) | отложено: нужен только если файл важнее вставки из Word |
-| Переезд email-канала на Resend (если появится спам) | по необходимости |
+| Импорт `.docx` (mammoth) | отложено |
 
-Решения по фазам 1–2: контент остаётся Markdown в репозитории, каждая публикация — коммит (история, откат). Черновики живут в `main` с `draft: true`. Админка потребует секретов `ADMIN_PASSWORD` (PBKDF2-хеш) и GitHub PAT с правом `contents:write` на этот репозиторий.
+## 14. Домены и DNS
 
-## 13. Домены и DNS
+Зона `narrativeintelligence.ru` на NS Cloudflare. Custom domains Worker'а привязаны через API (`workers/domains`), а не через `routes` — смена имени Worker'а отвалит домены.
 
-Зона `narrativeintelligence.ru` на NS Cloudflare. Custom domains Worker'а привязаны через API (`workers/domains`), а не через `routes` в конфиге — поэтому смена имени Worker'а отвалит домены.
+`audit.narrativeintelligence.ru` — CNAME на туннель cloudflared; проксирование выключено (серый щелчок), TLS держит Cloudflare Edge для туннеля.
 
-Почты на домене нет (MX и SPF отсутствуют). Если понадобится адрес вида `hi@narrativeintelligence.ru` — включить Cloudflare Email Routing и пересылку на `niaagency@yandex.com`; конфликтов не будет, MX сейчас пустые.
+Почты на домене нет (MX и SPF отсутствуют). Для адреса вида `hi@narrativeintelligence.ru` — включить Cloudflare Email Routing и пересылку на `niaagency@yandex.com`; конфликтов не будет.
