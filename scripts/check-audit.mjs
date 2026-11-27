@@ -360,6 +360,7 @@ await check("создание идёт в сервис с внутренним �
   assert(create, "POST /audit не вызван");
   assert(create.headers["x-internal-token"] === "internal-secret", "нет внутреннего токена");
   assert(create.headers["x-forwarded-for"] === "203.0.113.42", `XFF: ${create.headers["x-forwarded-for"]}`);
+  assert(create.headers["x-client-ip"] === "203.0.113.42", `x-client-ip: ${create.headers["x-client-ip"]}`);
   const stored = JSON.parse(await env.AUDIT_KV.get(`job:${data.job.id}`));
   assert(stored.externalId === "story-token-1", `externalId: ${stored.externalId}`);
   assert(stored.status === "queued", `статус: ${stored.status}`);
