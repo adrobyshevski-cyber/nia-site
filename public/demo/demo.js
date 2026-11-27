@@ -66,7 +66,9 @@
       </form>
       <p class="hint${isError ? " error" : ""}" id="start-status" aria-live="polite"></p>
       <p class="fineprint">Один бесплатный аудит на устройство. Аудит идёт 5–7 минут —
-        страницу можно закрыть, отчёт откроется по ссылке после того, как вы оставите контакты.</p>`;
+        страницу можно закрыть, отчёт откроется по ссылке после того, как вы оставите контакты.
+        Запуская аудит, вы соглашаетесь на обработку адреса сайта из открытых источников
+        (<a href="/privacy/" target="_blank" rel="noopener">политика</a>).</p>`;
 
     $("start-status").textContent = message;
     $("start-form").addEventListener("submit", onStart);

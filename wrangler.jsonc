@@ -11,9 +11,9 @@
   ],
   "vars": {
     // stub — воронка на заглушке; live — реальный StoryAudit по AUDIT_SERVICE_URL
-    "AUDIT_ENGINE": "stub",
-    // адрес сервиса после деплоя на Render: https://audit.narrativeintelligence.ru
-    "AUDIT_SERVICE_URL": ""
+    "AUDIT_ENGINE": "live",
+    // StoryAudit на локальной машине через Cloudflare Tunnel
+    "AUDIT_SERVICE_URL": "https://audit.narrativeintelligence.ru"
   },
   "assets": {
     "directory": "./public",
