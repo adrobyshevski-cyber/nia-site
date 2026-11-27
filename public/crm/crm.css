@@ -56,6 +56,9 @@ tr.row:hover td{background:#171724}
 tr.row.active td{background:#1d1b2e}
 td .sub{display:block;color:var(--muted);font-size:12px}
 .empty{padding:26px 18px;color:var(--muted)}
+.pager{display:flex;align-items:center;gap:10px;padding:9px 18px;border-top:1px solid var(--line);background:var(--panel);flex:0 0 auto}
+.pager-info{flex:1;text-align:center;font-size:12.5px;color:var(--muted)}
+.pager .btn:disabled{opacity:.4;cursor:default}
 
 /* карточка */
 .card{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;overflow:auto;padding:16px 18px 28px}

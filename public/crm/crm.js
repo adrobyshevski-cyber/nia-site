@@ -4,7 +4,16 @@
   const STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost", "paused"];
   const SOURCE_LABEL = { demo: "demo · стенд", audit_form: "форма сайта", manual: "вручную" };
 
-  const state = { leads: [], total: 0, currentId: "", query: { q: "", status: "", source: "" }, timer: 0 };
+  const PAGE_SIZE = 50;
+  const state = {
+    leads: [],
+    total: 0,
+    limit: PAGE_SIZE,
+    offset: 0,
+    currentId: "",
+    query: { q: "", status: "", source: "" },
+    timer: 0,
+  };
 
   const escape = (value) =>
     String(value ?? "")
@@ -88,11 +97,20 @@
   async function loadLeads() {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(state.query)) if (value) params.set(key, value);
-    params.set("limit", "100");
+    params.set("limit", String(state.limit));
+    params.set("offset", String(state.offset));
     const data = await api(`/api/crm/leads?${params}`);
     state.leads = data.items || [];
     state.total = data.total || 0;
+
+    // страница опустела (удалили/сменили фильтр) — вернуться на последнюю с данными
+    if (!state.leads.length && state.offset > 0 && state.total > 0) {
+      state.offset = Math.max(0, (Math.ceil(state.total / state.limit) - 1) * state.limit);
+      return loadLeads();
+    }
+
     renderRows();
+    renderPager();
   }
 
   function renderRows() {
@@ -118,6 +136,29 @@
       row.addEventListener("click", () => openLead(row.dataset.id));
     }
   }
+
+  function renderPager() {
+    const pager = $("pager");
+    const pages = Math.max(1, Math.ceil(state.total / state.limit));
+    const page = Math.floor(state.offset / state.limit) + 1;
+    const from = state.total === 0 ? 0 : state.offset + 1;
+    const to = Math.min(state.offset + state.leads.length, state.total);
+
+    pager.hidden = state.total <= state.limit;
+    $("prev").disabled = state.offset === 0;
+    $("next").disabled = page >= pages;
+    $("pager-info").textContent = `${from}–${to} из ${state.total} · стр. ${page} / ${pages}`;
+  }
+
+  $("prev").addEventListener("click", () => {
+    state.offset = Math.max(0, state.offset - state.limit);
+    loadLeads().catch((error) => say(error.message, "err"));
+  });
+
+  $("next").addEventListener("click", () => {
+    state.offset += state.limit;
+    loadLeads().catch((error) => say(error.message, "err"));
+  });
 
   // ---------- карточка ----------
   async function openLead(id) {
@@ -310,6 +351,7 @@
       const id = data.lead && data.lead.id;
       for (const field of leadFields) $(field).value = "";
       closeModal();
+      state.offset = 0;
       await refresh();
       if (id) await openLead(id);
       say("Лид добавлен", "ok");
@@ -394,6 +436,7 @@
     clearTimeout(state.timer);
     state.timer = setTimeout(() => {
       state.query = { q: $("q").value.trim(), status: $("status").value, source: $("source").value };
+      state.offset = 0; // новый фильтр — с первой страницы
       refresh();
     }, 220);
   };

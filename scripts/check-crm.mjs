@@ -265,6 +265,24 @@ async function main() {
     assert(big.limit === 200, `limit не ограничен: ${big.limit}`);
   });
 
+  await check("пагинация не теряет и не дублирует лиды с одинаковой датой", async () => {
+    const { db } = freshDb();
+    const stamp = "2026-11-27T12:00:00.000Z";
+    for (let i = 0; i < 5; i += 1) {
+      const id = await recordLead({ DB: db }, { source: "manual", email: `p${i}@example.ru` });
+      await db.prepare("UPDATE leads SET created_at = ? WHERE id = ?").bind(stamp, id).run();
+    }
+
+    const seen = [];
+    for (let offset = 0; offset < 5; offset += 2) {
+      const page = await listLeads({ DB: db }, { limit: 2, offset });
+      seen.push(...page.items.map((item) => item.id));
+    }
+    assert(seen.length === 5, `строк: ${seen.length}`);
+    assert(new Set(seen).size === 5, "страницы дублируют лиды");
+    assert((await listLeads({ DB: db }, { limit: 2, offset: 0 })).total === 5, "total неверный");
+  });
+
   await check("карточка несуществующего лида — null", async () => {
     const { db } = await seed();
     assert((await getLead({ DB: db }, "nope")) === null, "ожидали null");
