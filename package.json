@@ -16,5 +16,8 @@
     "check:audit": "node scripts/check-audit.mjs",
     "check:crm": "node scripts/check-crm.mjs",
     "qr": "python scripts/make-qr.py"
+  },
+  "devDependencies": {
+    "wrangler": "^4.169.0"
   }
 }

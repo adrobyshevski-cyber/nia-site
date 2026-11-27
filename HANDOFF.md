@@ -8,7 +8,7 @@
 - Сервис аудита: `C:\work\narrative_audit` (StoryAudit), `main` = `b63755b`
 - Ротация `CLOUDFLARE_API_TOKEN`: 2026-11-26 (Roll в dash), предыдущее значение отозвано (`401`)
 
-**Следующая сессия: включить D1 для CRM (раздел 12) — коду не хватает только биндинга `DB`.**
+**CRM фаза 1 включена и задеплоена (раздел 12). Дальше — фаза 2: напоминания по `next_step_at`, CSV, сводка по событиям.**
 
 ---
 
@@ -24,6 +24,7 @@
 | Аккаунт Cloudflare | `9c43f65513791f4aaf18522bf44c7d28` (a.drobyshevski@gmail.com) |
 | Репозиторий | `github.com/adrobyshevski-cyber/nia-site`, ветка `main` |
 | KV `AUDIT_KV` | namespace `nia-audit`, id `d4bb0d870ea84be287c6b7e90bc5376a` |
+| D1 `DB` | база `nia-crm`, id `8b00676a-4065-477c-a031-02bfebbbc7bf` (CRM) |
 | Сборка | нет, кроме раздела insights (Markdown → HTML) |
 | Язык контента | русский, `lang="ru"` |
 
@@ -275,21 +276,28 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 
 **Фаза 1 готова в коде** (`lib/crm.js`, `public/crm/`, `migrations/0001_init.sql`, `scripts/check-crm.mjs`). Осталось включить хранилище — нужен токен с правом `Account · D1 · Edit`.
 
-### Включение (по шагам)
+### Включено (2026-11-27)
+
+| Что | Значение |
+|---|---|
+| D1 | `nia-crm`, id `8b00676a-4065-477c-a031-02bfebbbc7bf`, регион EEUR |
+| Биндинг | `DB` в `wrangler.jsonc` |
+| Миграция | `0001_init.sql` применена (`wrangler d1 migrations apply nia-crm --remote`) |
+| Деплой | версия `29b35a7d-7ec7-4d1d-b9f7-fcecc708b30a` |
+| Проверено | `/api/crm/leads` без cookie → `401`; тестовая заявка через `/api/lead` легла в `leads` (строка затем удалена) |
+
+Вход в CLI — **OAuth через браузер**, а не конструктор токенов: `npx wrangler login` (браузер открывается сам, права включают `d1:write`). Токен нужен только CI — `CLOUDFLARE_API_TOKEN` в GitHub Secrets; для него в дашборде правится существующий `nia-site-deploy` → `Account · D1 · Edit`.
+
+Полезное:
 
 ```powershell
-cd C:\work\nia_site
-$env:CLOUDFLARE_API_TOKEN="<токен с D1: Edit>"
-npx wrangler d1 create nia-crm          # взять database_id из вывода
+npx wrangler d1 list                                    # список баз
+npx wrangler d1 execute nia-crm --remote --json --command "select * from leads limit 5" -y
+npx wrangler d1 migrations apply nia-crm --local        # локальная копия для npm run dev
+npx wrangler deploy                                     # деплой без CI
 ```
 
-1. Вставить id в `wrangler.jsonc` → раскомментировать блок `d1_databases` (binding `DB`).
-2. `npx wrangler d1 migrations apply nia-crm --remote`
-3. `npx wrangler deploy` (или пуш в `main` — CI тесты уже включают `check-crm`).
-4. Проверка: `curl.exe -s -o NUL -w "%{http_code}" https://narrativeintelligence.ru/api/crm/leads` → `401` без cookie.
-5. Открыть `/crm/`, войти паролем `/studio/`, отправить тестовую заявку, увидеть лид.
-
-Локально: `npx wrangler d1 migrations apply nia-crm --local` + `npm run dev` (без токена работает только `--local`).
+Грабли: curl из Windows-шелла портит кириллицу в теле запроса (U+FFFD в D1) — проверять через Python `urllib` или из браузера.
 
 ### Что уже есть
 
@@ -329,7 +337,7 @@ npx wrangler d1 create nia-crm          # взять database_id из вывод
 | `/demo`: живой StoryAudit через туннель | **готово** (2026-11-27) |
 | Короткий отчёт на стенде, полный в архив | **готово** |
 | NIA-брендинг в отчёте, приложения C/D убраны | **готово** |
-| **CRM на D1** — фаза 1 (схема, API, `/crm`, автозапись, тесты) | **готово в коде**, для запуска нужен токен с `D1: Edit` |
+| **CRM на D1** — фаза 1 (схема, API, `/crm`, автозапись, тесты) | **готово** 2026-11-27, база `nia-crm` |
 | CRM: напоминания, CSV, сводка по событиям | фаза 2–3, см. раздел 12 |
 | Авто-публикация отчётов для публичных заявок | решение не принято: сейчас каждый отчёт подтверждается вручную |
 | Дедупликация источников в реестре S01/S02 | не начато (дубли одного домена) |
