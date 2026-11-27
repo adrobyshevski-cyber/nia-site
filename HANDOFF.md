@@ -67,7 +67,7 @@ scripts/check-lead.mjs          20 тестов заявок
 scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
 scripts/check-audit.mjs         33 теста /demo
-scripts/check-crm.mjs           40 тестов CRM и напоминаний (настоящий SQLite)
+scripts/check-crm.mjs           42 теста CRM и напоминаний (настоящий SQLite)
 migrations/0001_init.sql        схема D1: leads, deals, activities
 migrations/0002_reminders.sql   deals.reminded_at + индекс для cron-напоминаний
 scripts/check-links.py          ссылки, формы, SEO, дубли id, контракт клиент↔сервер
@@ -153,7 +153,7 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 
 | Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
 | Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
 | `/demo` | `node scripts/check-audit.mjs` | 33: URL/телефон, лимиты устройства и IP, квота события, маппинг состояний StoryAudit, архив отчёта, HTML-файл в Telegram, деградация при сбоях |
-| CRM | `node scripts/check-crm.mjs` | 40: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
+| CRM | `node scripts/check-crm.mjs` | 42: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
 | Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
 
@@ -323,7 +323,8 @@ npx wrangler deploy                                     # деплой без CI
 
 ### Фазы 2–3
 
-- сделки: смена стадии и следующий шаг по услугам, `amount` (в API уже есть, в UI — поле суммы);
+- ~~сделки: сумма~~ — **готово 2026-11-27**: поле суммы при создании и правка прямо в карточке, `amount` валидируется (неотрицательное целое), показывается в `₽`;
+- ~~ручное добавление лида~~ — **готово 2026-11-27**: кнопка «+ Лид», поля имя/email/телефон/сайт/контекст (`leads.notes`), после создания сразу открывается карточка;
 - ~~напоминания в Telegram по `next_step_at`~~ — **готово и проверено на проде 2026-11-27**: cron `*/15`, дедупликация `deals.reminded_at` (сбрасывается при смене срока), событие `system` в ленте, кнопка «⏰ Напомнить», `POST /api/crm/reminders/run`, deeplink `/crm/?lead=<id>`;
 - сводка по событиям (`event`), выгрузка CSV, пагинация списка (API умеет `limit`/`offset`, UI берёт 100);
 - ручное добавление лида: API `POST /api/crm/leads` есть, в UI — кнопка.

@@ -344,6 +344,34 @@ async function main() {
     assert(card.activities.some((act) => act.deal_id === deal.id), "активность по сделке не записана");
   });
 
+  await check("сумма сделки сохраняется, обновляется и валидируется", async () => {
+    const { db, demo } = await seed();
+    const deal = await createDeal({ DB: db }, demo, { service: "audit", amount: 120000 });
+    assert(Number(deal.amount) === 120000, `сумма при создании: ${deal.amount}`);
+
+    const updated = await updateDeal({ DB: db }, deal.id, { amount: "250000" });
+    assert(Number(updated.amount) === 250000, `сумма не обновилась: ${updated.amount}`);
+
+    const cleared = await updateDeal({ DB: db }, deal.id, { amount: null });
+    assert(cleared.amount === null, `пустая сумма не обнулилась: ${cleared.amount}`);
+
+    let negative = "";
+    try {
+      await updateDeal({ DB: db }, deal.id, { amount: -5 });
+    } catch (error) {
+      negative = error.message;
+    }
+    assert(negative.includes("Сумма"), `отрицательная сумма не отклонена: «${negative}»`);
+
+    let garbage = "";
+    try {
+      await createDeal({ DB: db }, demo, { service: "brand", amount: "много" });
+    } catch (error) {
+      garbage = error.message;
+    }
+    assert(garbage.includes("Сумма"), `нечисловая сумма не отклонена: «${garbage}»`);
+  });
+
   await check("удаление лида уносит сделки и активности", async () => {
     const { db, demo } = await seed();
     await createDeal({ DB: db }, demo, { service: "lab" });
@@ -480,7 +508,8 @@ async function main() {
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-    const response = await handleCrm(request, env, path, deps);
+    // третий аргумент — только pathname: query разбирается из request.url
+    const response = await handleCrm(request, env, new URL(request.url).pathname, deps);
     const data = await response.clone().json().catch(() => ({}));
     return { status: response.status, data };
   }
@@ -545,6 +574,25 @@ async function main() {
     const { status, data } = await callCrm(env, { cookie, method: "POST", path: "/api/crm/leads", body: { name: "Без контакта" } });
     assert(status === 400, `статус: ${status}`);
     assert(/email|телефон/i.test(data.error || ""), `текст: ${data.error}`);
+  });
+
+  await check("ручной лид с заметкой: создаётся, заметка в карточке", async () => {
+    const { db } = freshDb();
+    const env = { ...ENV, DB: db };
+    const cookie = await cookieFor(env);
+    const created = await callCrm(env, {
+      cookie,
+      method: "POST",
+      path: "/api/crm/leads",
+      body: { name: "Пётр Сидоров", phone: "+7 999 000-11-22", site: "petrov.ru", notes: "Познакомились на конференции" },
+    });
+    assert(created.status === 200, `статус: ${created.status}`);
+    assert(created.data.lead.source === "manual", `источник: ${created.data.lead.source}`);
+    assert(created.data.lead.notes === "Познакомились на конференции", `заметка: ${created.data.lead.notes}`);
+    assert(created.data.lead.email === null, "email должен остаться пустым");
+
+    const list = await callCrm(env, { cookie, path: "/api/crm/leads?source=manual" });
+    assert(list.data.total === 1, `в списке: ${list.data.total}`);
   });
 
   await check("неизвестный маршрут — 404, health — 200", async () => {

@@ -29,6 +29,12 @@
 
   const pill = (stage) => `<span class="pill ${escape(stage || "new")}">${escape(stage || "new")}</span>`;
 
+  const money = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return "—";
+    return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 }).format(number);
+  };
+
   class AuthError extends Error {}
   class NotReady extends Error {}
 
@@ -144,6 +150,7 @@
       lead.consent_at ? `<dt>Согласие</dt><dd>${fmt(lead.consent_at)}</dd>` : `<dt>Согласие</dt><dd class="muted">не зафиксировано</dd>`,
     ];
     $("card-contacts").innerHTML = rows.filter(Boolean).join("");
+    $("card-notes").value = lead.notes || "";
 
     $("card-status").innerHTML = STAGES.map(
       (stage) => `<option value="${stage}"${stage === lead.status ? " selected" : ""}>${stage}</option>`,
@@ -159,6 +166,10 @@
                 <button class="btn small deal-del" type="button">Удалить</button>
               </div>
               <div class="next">${deal.next_step ? escape(deal.next_step) : "шаг не задан"}${deal.next_step_at ? ` · ${fmt(deal.next_step_at)}` : ""}</div>
+              <div class="deal-money">
+                <input aria-label="Сумма сделки, рублей" class="deal-amount" min="0" placeholder="сумма" step="1000" type="number" value="${deal.amount ? Number(deal.amount) : ""}"/>
+                <span>${deal.amount ? money(deal.amount) : "₽"}</span>
+              </div>
             </div>`,
           )
           .join("")
@@ -173,6 +184,19 @@
         if (!confirm("Удалить сделку?")) return;
         await api(`/api/crm/deals/${encodeURIComponent(dealId)}`, { method: "DELETE" }).catch((e) => say(e.message, "err"));
         openLead(state.currentId);
+      });
+      const amountInput = box.querySelector(".deal-amount");
+      amountInput.addEventListener("change", async () => {
+        try {
+          await api(`/api/crm/deals/${encodeURIComponent(dealId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ amount: amountInput.value === "" ? null : Number(amountInput.value) }),
+          });
+          say("Сумма сохранена", "ok");
+          await refreshStats();
+        } catch (error) {
+          say(error.message, "err");
+        }
       });
     }
 
@@ -236,14 +260,74 @@
     }
   });
 
+  $("card-notes-save").addEventListener("click", async () => {
+    try {
+      await api(`/api/crm/leads/${encodeURIComponent(state.currentId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ notes: $("card-notes").value.trim() }),
+      });
+      say("Заметка оператора сохранена", "ok");
+    } catch (error) {
+      say(error.message, "err");
+    }
+  });
+
+  // ---------- новый лид вручную ----------
+  const leadFields = ["nl-name", "nl-email", "nl-phone", "nl-site", "nl-notes"];
+  const closeModal = () => {
+    $("lead-modal").hidden = true;
+    $("lead-status").textContent = "";
+  };
+
+  $("new-lead").addEventListener("click", () => {
+    $("lead-modal").hidden = false;
+    $("lead-status").textContent = "";
+    $("nl-name").focus();
+  });
+  $("lead-cancel").addEventListener("click", closeModal);
+  $("lead-modal").addEventListener("click", (event) => {
+    if (event.target === $("lead-modal")) closeModal();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("lead-modal").hidden) closeModal();
+  });
+
+  $("lead-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = {
+      name: $("nl-name").value.trim(),
+      email: $("nl-email").value.trim(),
+      phone: $("nl-phone").value.trim(),
+      site: $("nl-site").value.trim(),
+      notes: $("nl-notes").value.trim(),
+    };
+    if (!payload.email && !payload.phone) {
+      $("lead-status").textContent = "Укажите email или телефон — без контакта лид бесполезен.";
+      return;
+    }
+    try {
+      const data = await api("/api/crm/leads", { method: "POST", body: JSON.stringify(payload) });
+      const id = data.lead && data.lead.id;
+      for (const field of leadFields) $(field).value = "";
+      closeModal();
+      await refresh();
+      if (id) await openLead(id);
+      say("Лид добавлен", "ok");
+    } catch (error) {
+      $("lead-status").textContent = error.message;
+    }
+  });
+
   $("deal-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const when = $("deal-when").value;
+    const rawAmount = $("deal-amount").value;
     const payload = {
       service: $("deal-service").value,
       stage: $("deal-stage").value,
       next_step: $("deal-step").value.trim(),
       next_step_at: when ? new Date(`${when}T09:00:00`).toISOString() : null,
+      amount: rawAmount === "" ? null : Number(rawAmount),
     };
     try {
       await api(`/api/crm/leads/${encodeURIComponent(state.currentId)}/deals`, {
@@ -252,6 +336,7 @@
       });
       $("deal-step").value = "";
       $("deal-when").value = "";
+      $("deal-amount").value = "";
       await openLead(state.currentId);
       await loadLeads();
       await refreshStats();

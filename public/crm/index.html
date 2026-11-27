@@ -5,6 +5,7 @@
 <div class="shell" hidden="" id="app">
   <header class="head">
     <span class="mark">NIA</span><span class="where">/ crm</span><span class="state" id="state"></span><span class="spacer"></span>
+    <button class="btn small" id="new-lead" type="button">+ Лид</button>
     <button class="btn small" id="remind" title="Отправить напоминания по наступившим шагам в Telegram" type="button">⏰ Напомнить</button>
     <button class="btn small" id="reload" type="button">⟳ Обновить</button>
     <button class="btn small" id="logout" type="button">Выйти</button>
@@ -35,6 +36,11 @@
       </div>
       <div class="block"><h3>Контакты</h3><dl class="kv" id="card-contacts"></dl></div>
       <div class="block">
+        <h3>Заметка оператора</h3>
+        <div class="field"><textarea id="card-notes" maxlength="4000" placeholder="Контекст, договорённости, ссылки" rows="3"></textarea></div>
+        <button class="btn small" id="card-notes-save" type="button">Сохранить заметку</button>
+      </div>
+      <div class="block">
         <h3>Стадия лида</h3>
         <select id="card-status"></select>
       </div>
@@ -50,6 +56,7 @@
             <div class="field"><label for="deal-step">Следующий шаг</label><input id="deal-step" placeholder="Отправить смету"/></div>
             <div class="field"><label for="deal-when">Когда</label><input id="deal-when" type="date"/></div>
           </div>
+          <div class="field"><label for="deal-amount">Сумма, ₽</label><input id="deal-amount" min="0" placeholder="120000" step="1000" type="number"/></div>
           <button class="btn small" type="submit">Добавить сделку</button>
         </form>
       </div>
@@ -60,6 +67,27 @@
       </div>
     </aside>
   </div>
+</div>
+
+<div class="modal" hidden="" id="lead-modal">
+  <form class="modal-box" id="lead-form">
+    <div class="eyebrow">[ NIA ] / CRM</div>
+    <h2>Новый лид</h2>
+    <div class="row2">
+      <div class="field"><label for="nl-name">Имя</label><input id="nl-name" maxlength="100" placeholder="Иван Петров"/></div>
+      <div class="field"><label for="nl-phone">Телефон</label><input id="nl-phone" maxlength="40" placeholder="+7 999 123-45-67"/></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="nl-email">Email</label><input id="nl-email" maxlength="200" placeholder="ivan@company.ru"/></div>
+      <div class="field"><label for="nl-site">Сайт</label><input id="nl-site" maxlength="300" placeholder="company.ru"/></div>
+    </div>
+    <div class="field"><label for="nl-notes">Откуда и о чём</label><textarea id="nl-notes" maxlength="4000" placeholder="Познакомились на конференции, интересует аудит" rows="3"></textarea></div>
+    <p class="gate-status" id="lead-status"></p>
+    <div class="modal-actions">
+      <button class="btn primary" type="submit">Создать лид</button>
+      <button class="btn" id="lead-cancel" type="button">Отмена</button>
+    </div>
+  </form>
 </div>
 <script src="/crm/crm.js"></script>
 </body></html>
