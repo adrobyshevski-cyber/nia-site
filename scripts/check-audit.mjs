@@ -16,6 +16,7 @@ const ENV = {
 
 let failed = 0;
 const telegram = [];
+const documents = [];
 
 function makeKv() {
   const store = new Map();
@@ -49,8 +50,16 @@ const assert = (condition, message) => {
 
 const realFetch = globalThis.fetch;
 
-const telegramOk = async (url) => {
+const telegramOk = async (url, init) => {
   telegram.push(String(url));
+  if (String(url).includes("sendDocument")) {
+    const body = init?.body;
+    documents.push({
+      isFormData: body instanceof FormData,
+      hasBlob: body instanceof FormData && body.get("document") instanceof Blob,
+      filename: body instanceof FormData && body.get("document")?.name,
+    });
+  }
   return new Response(JSON.stringify({ ok: true }), { status: 200 });
 };
 
@@ -91,7 +100,7 @@ const resetService = () => {
 globalThis.fetch = async (url, init) => {
   const target = String(url);
   if (target.startsWith("https://audit.example")) return serviceFetch(target, init);
-  return telegramOk(target);
+  return telegramOk(target, init);
 };
 
 const call = (env, path, { method = "GET", body, cookie, origin, ip = "203.0.113.5" } = {}) => {
@@ -483,6 +492,24 @@ await check("сбой сервиса не убивает заявку с пер�
   for (let i = 0; i < 4; i += 1) await call(env, `/api/audit/status?id=${id}`);
   const after = await (await call(env, `/api/audit/status?id=${id}`)).json();
   assert(after.job.status === "failed", `после пяти ошибок: ${after.job.status}`);
+});
+
+await check("PDF отчёта уходит файлом в Telegram", async () => {
+  resetService();
+  const env = liveEnv();
+  const started = await (await call(env, "/api/audit/start", { method: "POST", body: { url: "https://a.example" } })).json();
+  service.state = "ready";
+  await call(env, `/api/audit/status?id=${started.job.id}`);
+  documents.length = 0;
+  const res = await call(env, "/api/audit/reveal", {
+    method: "POST",
+    body: { id: started.job.id, name: "Иван", email: "file@example.com", phone: "+79991234567", consent: true },
+  });
+  assert(res.status === 200, `статус ${res.status}`);
+  const doc = documents[0];
+  assert(doc, "sendDocument не вызывался");
+  assert(doc.isFormData && doc.hasBlob, "документ отправлен не как файл");
+  assert(/narrative-audit-.*\.pdf$/.test(doc.filename || ""), `имя файла: ${doc.filename}`);
 });
 
 await check("неизвестный метод API → 404", async () => {
