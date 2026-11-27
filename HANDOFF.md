@@ -183,7 +183,28 @@ public/studio/      страница входа и приложение
 
 Режим движка — `AUDIT_ENGINE`: `stub` (отладка воронки, отчёта нет) или `live`.
 
-**Live-режим (StoryAudit на Render):**
+**Live-режим (StoryAudit работает локально через Cloudflare Tunnel):**
+
+```
+туннель        cloudflared tunnel run storyaudit   (protocol: http2, QUIC режется провайдером)
+сервис         powershell -File scripts\start-public.ps1  (в C:\work\narrative_audit)
+конфиг         C:\Users\User\.cloudflared\config.yml, tunnel 91b9d5f1-…
+домен          audit.narrativeintelligence.ru → CNAME на туннель
+```
+
+Проверено 2026-11-27: заявка из `/demo` создаётся в StoryAudit, скан проходит,
+состояние доходит до нашего Worker, отчёт забирается и отдаётся на `/r/<token>/`
+(73 КБ HTML со встроенным CSS, PDF 192 КБ через прокси).
+
+Особенности этой схемы:
+
+- скан идёт из домашней сети, поэтому сайты, недоступные из неё (включая сам
+  narrativeintelligence.ru из-за фильтра провайдера), падают на этапе INGEST;
+- отчёт после скана попадает в `review` и становится `ready` только после
+  подтверждения Stage Gate в `/ui/scans` — на ивенте это ручная операция на
+  каждый аудит;
+- компьютер должен быть включён: сервис, воркер и туннель живут на нём.
+
 
 ```
 wrangler.jsonc   AUDIT_ENGINE = "live"
