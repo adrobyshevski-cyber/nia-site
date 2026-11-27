@@ -54,10 +54,12 @@ const telegramOk = async (url, init) => {
   telegram.push(String(url));
   if (String(url).includes("sendDocument")) {
     const body = init?.body;
+    const file = body instanceof FormData ? body.get("document") : null;
     documents.push({
       isFormData: body instanceof FormData,
-      hasBlob: body instanceof FormData && body.get("document") instanceof Blob,
-      filename: body instanceof FormData && body.get("document")?.name,
+      hasBlob: file instanceof Blob,
+      filename: file?.name,
+      type: file?.type,
     });
   }
   return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -494,7 +496,7 @@ await check("сбой сервиса не убивает заявку с пер�
   assert(after.job.status === "failed", `после пяти ошибок: ${after.job.status}`);
 });
 
-await check("PDF отчёта уходит файлом в Telegram", async () => {
+await check("HTML-отчёт уходит файлом в Telegram", async () => {
   resetService();
   const env = liveEnv();
   const started = await (await call(env, "/api/audit/start", { method: "POST", body: { url: "https://a.example" } })).json();
@@ -509,7 +511,8 @@ await check("PDF отчёта уходит файлом в Telegram", async () =
   const doc = documents[0];
   assert(doc, "sendDocument не вызывался");
   assert(doc.isFormData && doc.hasBlob, "документ отправлен не как файл");
-  assert(/narrative-audit-.*\.pdf$/.test(doc.filename || ""), `имя файла: ${doc.filename}`);
+  assert(/narrative-audit-.*\.html$/.test(doc.filename || ""), `имя файла: ${doc.filename}`);
+  assert(doc.type === "text/html", `тип файла: ${doc.type}`);
 });
 
 await check("неизвестный метод API → 404", async () => {
