@@ -87,6 +87,15 @@ const serviceFetch = async (url, init = {}) => {
     service.reportQueries.push(isBrief ? "brief" : "full");
     return new Response(html, { status: 200, headers: { "content-type": "text/html" } });
   }
+  if (path.endsWith("/publish") && init.method === "POST") {
+    service.publishCalls += 1;
+    if (service.publishStatus >= 400) {
+      return new Response(JSON.stringify({ error: "Stage Gate: not ready" }), { status: service.publishStatus });
+    }
+    const next = service.publishState;
+    service.state = next;
+    return new Response(JSON.stringify({ state: next }), { status: 200 });
+  }
   if (path.endsWith("/report.pdf")) {
     return new Response(service.pdf, { status: 200, headers: { "content-type": "application/pdf" } });
   }
@@ -101,6 +110,9 @@ const resetService = () => {
   service.calls = [];
   service.reportQueries = [];
   service.fail = false;
+  service.publishCalls = 0;
+  service.publishStatus = 200;
+  service.publishState = "ready";
   service.fullHtml = '<html><body>ПОЛНЫЙ ОТЧЁТ: 17 разделов</body></html>';
 };
 
@@ -582,6 +594,62 @@ await check("неизвестный метод API → 404", async () => {
   assert(res.status === 404, `статус ${res.status}`);
 });
 
+console.log("\nавто-публикация отчётов");
+
+await check("review без AUDIT_AUTO_PUBLISH: ждёт ручного подтверждения", async () => {
+  resetService();
+  service.state = "review";
+  const env = liveEnv();
+  const startRes = await call(env, "/api/audit/start", { method: "POST", body: startBody() });
+  const started = await startRes.json();
+  assert(started.job, `старт: ${startRes.status} ${JSON.stringify(started)}`);
+  const res = await (await call(env, `/api/audit/status?id=${started.job.id}`)).json();
+  assert(res.job.status === "review", `статус: ${res.job.status}`);
+  assert(service.publishCalls === 0, `publish вызван ${service.publishCalls} раз при выключенном флаге`);
+});
+
+await check("AUDIT_AUTO_PUBLISH=1: review → publish → done, отчёт сохранён", async () => {
+  resetService();
+  service.state = "review";
+  const env = { ...liveEnv(), AUDIT_AUTO_PUBLISH: "1" };
+  const started = await (await call(env, "/api/audit/start", { method: "POST", body: startBody() })).json();
+  const res = await (await call(env, `/api/audit/status?id=${started.job.id}`)).json();
+
+  assert(res.job.status === "done", `статус: ${res.job.status}`);
+  assert(service.publishCalls === 1, `publish вызван ${service.publishCalls} раз`);
+  assert(service.calls.some((entry) => entry.path.endsWith("/publish")), "нет вызова /publish");
+
+  const job = JSON.parse(await env.AUDIT_KV.get(`job:${started.job.id}`));
+  assert(job.autoPublishedAt, "нет отметки авто-публикации");
+  assert(job.reportToken, "нет токена отчёта");
+  assert(await env.AUDIT_KV.get(`report:${job.reportToken}`), "краткий отчёт не сохранён");
+});
+
+await check("AUDIT_AUTO_PUBLISH: отказ сервиса → остаётся review, заявка жива", async () => {
+  resetService();
+  service.state = "review";
+  service.publishStatus = 409;
+  const env = { ...liveEnv(), AUDIT_AUTO_PUBLISH: "1" };
+  const started = await (await call(env, "/api/audit/start", { method: "POST", body: startBody() })).json();
+  const res = await (await call(env, `/api/audit/status?id=${started.job.id}`)).json();
+
+  assert(res.job.status === "review", `статус: ${res.job.status}`);
+  const job = JSON.parse(await env.AUDIT_KV.get(`job:${started.job.id}`));
+  assert(/Stage Gate|publish/i.test(job.autoPublishError || ""), `нет текста ошибки: ${job.autoPublishError}`);
+});
+
+await check("AUDIT_AUTO_PUBLISH не применяется к stub-демо", async () => {
+  const env = { ...ENV, AUDIT_AUTO_PUBLISH: "1", AUDIT_KV: makeKv() };
+  const started = await (await call(env, "/api/audit/start", { method: "POST", body: startBody() })).json();
+  const job = JSON.parse(await env.AUDIT_KV.get(`job:${started.job.id}`));
+  job.createdAt = Date.now() - 45_000;
+  await env.AUDIT_KV.put(`job:${job.id}`, JSON.stringify(job));
+  const res = await (await call(env, `/api/audit/status?id=${job.id}`)).json();
+  assert(res.job.status === "done", `статус: ${res.job.status}`);
+  assert(!res.job.autoPublishedAt, "stub не должен публиковаться через сервис");
+});
+
 globalThis.fetch = realFetch;
+
 console.log(failed === 0 ? "\nвсе проверки прошли" : `\nпровалено: ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

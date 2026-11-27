@@ -66,7 +66,7 @@ scripts/build-insights.py       сборка insights из Markdown
 scripts/check-lead.mjs          20 тестов заявок
 scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
-scripts/check-audit.mjs         33 теста /demo
+scripts/check-audit.mjs         37 тестов /demo
 scripts/check-crm.mjs           51 тест CRM: напоминания, CSV, события, срок хранения, пагинация
 migrations/0001_init.sql        схема D1: leads, deals, activities
 migrations/0002_reminders.sql   deals.reminded_at + индекс для cron-напоминаний
@@ -152,7 +152,7 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 
 | Заявки | `node scripts/check-lead.mjs` | 20 сценариев: валидация, honeypot, formData без JS, 303 для нативной отправки, www→apex, ошибки каналов |
 | Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
 | Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
-| `/demo` | `node scripts/check-audit.mjs` | 33: URL/телефон, лимиты устройства и IP, квота события, маппинг состояний StoryAudit, архив отчёта, HTML-файл в Telegram, деградация при сбоях |
+| `/demo` | `node scripts/check-audit.mjs` | 37: URL/телефон, лимиты устройства и IP, квота события, маппинг состояний StoryAudit, авто-публикация (вкл/выкл/отказ), архив отчёта, HTML-файл в Telegram, деградация при сбоях |
 | CRM | `node scripts/check-crm.mjs` | 51: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
 | Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
@@ -228,6 +228,12 @@ GET /audit/{token}/report?inline=1[&brief=1] → самодостаточный 
 
 Состояния сервиса → наши: `ingesting`→queued, `analyzing`→running, `review`→review, `ready`→done, `failed|rejected`→failed, `expired`→expired.
 
+### Авто-публикация
+
+`AUDIT_AUTO_PUBLISH` в `wrangler.jsonc`: `"0"` (по умолчанию) — каждый отчёт ждёт подтверждения в `/ui/scans`; `"1"` — при `review` воркер сам зовёт `POST /audit/<token>/publish` в StoryAudit (только с `x-internal-token`), получает `ready` и сразу отдаёт отчёт клиенту.
+
+Гейт остаётся источником правды: сервис публикует только сканы в `succeeded`+`review`, а отказ (409) не ломает заявку — статус остаётся `review`, текст ошибки пишется в `job.autoPublishError`. Stub-демо не публикуется никогда. Чтобы фича заработала, нужен задеплоенный StoryAudit с `/publish` (иначе 404 → статус остаётся `review`).
+
 ### Отчёты
 
 | Что | Где | Срок |
@@ -269,7 +275,7 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 | Cloudflared: `failed to dial quic` | провайдер режет UDP/7844 | `protocol: http2` в конфиге туннеля |
 | `cert.pem` не подхватывался | файл скачался в `Downloads` | положить в `C:\Users\User\.cloudflared\cert.pem` |
 | Ссылка на отчёт «не открывается» | фильтрация домена у провайдера, а не ошибка приложения | проверять через edge, отдавать отчёт файлом в Telegram |
-| Отчёт в `review` после скана | публикацию закрывает Stage Gate | подтвердить в `/ui/scans` или включить авто-публикацию |
+| Отчёт в `review` после скана | публикацию закрывает Stage Gate | подтвердить в `/ui/scans` или включить `AUDIT_AUTO_PUBLISH=1` (ваходит `POST /audit/{token}/publish`) |
 
 ## 12. CRM — /crm на D1
 
@@ -350,7 +356,7 @@ npx wrangler deploy                                     # деплой без CI
 | NIA-брендинг в отчёте, приложения C/D убраны | **готово** |
 | **CRM на D1** — фаза 1 (схема, API, `/crm`, автозапись, тесты) | **готово** 2026-11-27, база `nia-crm` |
 | CRM: напоминания, CSV, сводка по событиям | фаза 2–3, см. раздел 12 |
-| Авто-публикация отчётов для публичных заявок | решение не принято: сейчас каждый отчёт подтверждается вручную |
+| Авто-публикация отчётов для публичных заявок | **готово** 2026-11-27, выключено по умолчанию: `AUDIT_AUTO_PUBLISH=1` + `POST /audit/{token}/publish` в StoryAudit |
 | Дедупликация источников в реестре S01/S02 | не начато (дубли одного домена) |
 | Конкурентный раздел: до 2 сайтов из `/demo` | не начато |
 | Категория и география в паспорте отчёта | сервис не выводит их из корпуса |
