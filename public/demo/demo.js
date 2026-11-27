@@ -65,8 +65,8 @@
         <button class="btn primary" id="start-button" type="submit">Запустить аудит</button>
       </form>
       <p class="hint${isError ? " error" : ""}" id="start-status" aria-live="polite"></p>
-      <p class="fineprint">Один бесплатный аудит на устройство. Работает демо-режим: воронка настоящая,
-        отчёт формируется в рабочем сервисе.</p>`;
+      <p class="fineprint">Один бесплатный аудит на устройство. Аудит идёт 5–7 минут —
+        страницу можно закрыть, отчёт откроется по ссылке после того, как вы оставите контакты.</p>`;
 
     $("start-status").textContent = message;
     $("start-form").addEventListener("submit", onStart);
@@ -111,14 +111,15 @@
     setStage({
       eyebrow: "АУДИТ ЗАПУЩЕН",
       title: "Ваш аудит в работе",
-      lead: `Разбираем публичный нарратив <strong>${host}</strong>. Обычно это занимает 2–3 минуты — страницу можно не закрывать.`,
+      lead: `Разбираем публичный нарратив <strong>${host}</strong>. Обычно 5–7 минут: сервис читает страницы сайта и проверяет утверждения по источникам.`,
     });
     body.innerHTML = `
       <div class="working"><div class="spinner" aria-hidden="true"></div>
         <div><strong>Идёт анализ</strong><br><span class="timer" id="timer">0:00</span>
         <span aria-live="polite" class="hint" id="poll-status"></span></div></div>
       <div class="progress"><span id="bar"></span></div>
-      <p class="fineprint">Аудит по открытым источникам. Если сервис перегружен, мы пришлём отчёт позже на указанный email.</p>`;
+      <p class="fineprint">Аудит по открытым источникам. Можно закрыть страницу — аудит продолжится,
+        а отчёт мы сохраним и отдадим по ссылке.</p>`;
   }
 
   function tick() {
@@ -142,12 +143,15 @@
       try {
         const data = await api(`/api/audit/status?id=${encodeURIComponent(jobId)}`);
         tick();
-        if (data.job.status === "done") {
+        if (data.job.status === "done" || data.job.status === "review" || data.job.status === "manual") {
           stopPolling();
           renderGate(data.job);
         } else if (data.job.status === "failed") {
           stopPolling();
-          renderForm("Сервис не смог обработать сайт. Проверьте адрес или напишите нам.", true);
+          renderForm("Сервис не смог обработать сайт — проверьте адрес или напишите нам, разберёмся вручную.", true);
+        } else if (data.job.status === "expired") {
+          stopPolling();
+          renderForm("Срок этой заявки истёк. Запустите аудит заново.", true);
         }
       } catch (error) {
         const status = $("poll-status");
@@ -165,11 +169,17 @@
   }
 
   // ---------- 3. контакты ----------
-  function renderGate() {
+  function renderGate(job) {
+    const manual = job && job.status === "manual";
+    const review = job && job.status === "review";
     setStage({
-      eyebrow: "АУДИТ ГОТОВ",
-      title: "Ваш аудит готов",
-      lead: "Укажите, куда отправить отчёт — и мы откроем его на этой странице и пришлём на email.",
+      eyebrow: manual ? "МЕСТА НА СТЕНДЕ ЗАКОНЧИЛИСЬ" : review ? "ОТЧЁТ НА ПРОВЕРКЕ" : "АУДИТ ГОТОВ",
+      title: manual ? "Оставим заявку и пришлём отчёт" : review ? "Аудит готов, отчёт проверяет аналитик" : "Ваш аудит готов",
+      lead: manual
+        ? "Квота аудитов на этом мероприятии исчерпана. Оставьте контакты — подготовим отчёт и пришлём его на email в течение суток."
+        : review
+          ? "Укажите контакты: как только аналитик подтвердит отчёт, ссылка придёт на email."
+          : "Укажите, куда отправить отчёт — откроем его на этой странице и пришлём ссылку на email.",
     });
     body.innerHTML = `
       <form class="gate" id="gate-form" novalidate>
@@ -247,15 +257,15 @@
   function renderDone(data) {
     setStage({ eyebrow: "ГОТОВО", title: "Спасибо! Заявка принята", lead: "" });
     const reportLine = data.reportUrl
-      ? `<p>Отчёт: <a href="${data.reportUrl}" target="_blank" rel="noopener">открыть</a>. Копия уйдёт на указанный email.</p>`
-      : `<p>Отчёт отправим на указанный email. Если в течение часа ничего не придёт — напишите нам.</p>`;
+      ? `<p><a class="btn primary" href="${data.reportUrl}" target="_blank" rel="noopener">Открыть отчёт</a></p>
+         <p>Ссылка сохранена за вами: если понадобится вернуться к отчёту — напишите нам.</p>`
+      : `<p>Отчёт пришлём на указанный email. Если в течение суток ничего не придёт — напишите нам.</p>`;
     body.innerHTML = `
       <div class="done">
         <div class="checkmark" aria-hidden="true">✓</div>
         <h2>Аудит готов, контакты получены</h2>
         ${reportLine}
-        <p class="stub-note">Это демонстрационный режим: форма и воронка работают полностью,
-          но отчёт на этом стенде не формируется — свяжемся и пришлём вручную.</p>
+        ${data.reportUrl ? "" : '<p class="stub-note">Это демонстрационный режим: форма и воронка работают полностью, отчёт на этом стенде не формируется.</p>'}
         <p><a href="/audit/">Полный бесплатный Narrative Audit →</a></p>
       </div>`;
   }

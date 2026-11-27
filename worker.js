@@ -8,7 +8,7 @@
 
 import { handleLead, json } from "./lib/lead.js";
 import { handleStudio } from "./lib/studio.js";
-import { handleAudit } from "./lib/audit.js";
+import { handleAudit, handleReport } from "./lib/audit.js";
 
 const HSTS = "max-age=15552000"; // 180 дней, без includeSubDomains
 
@@ -111,6 +111,10 @@ export default {
       }
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
       return json({ ok: false, error: "Метод не поддерживается." }, 405);
+    }
+
+    if (url.pathname.startsWith("/r/")) {
+      return handleReport(request, env, url.pathname);
     }
 
     if (url.pathname.startsWith("/api/audit/")) {

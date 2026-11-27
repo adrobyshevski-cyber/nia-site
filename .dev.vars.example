@@ -16,3 +16,8 @@ GITHUB_TOKEN=
 
 # Ключ Web3Forms здесь НЕ нужен: он публичный и лежит в public/lead.js, потому что
 # бесплатный тариф Web3Forms принимает запросы только из браузера.
+
+# Движок экспресс-аудита (/demo). Для локальной работы достаточно stub.
+# AUDIT_ENGINE и AUDIT_SERVICE_URL задаются в wrangler.jsonc;
+# токен — это PUBLIC_INTERNAL_TOKEN из StoryAudit.
+AUDIT_INTERNAL_TOKEN=

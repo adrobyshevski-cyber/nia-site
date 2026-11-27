@@ -10,8 +10,10 @@
     { "binding": "AUDIT_KV", "id": "d4bb0d870ea84be287c6b7e90bc5376a" }
   ],
   "vars": {
-    // stub — воронка работает на заглушке; live — реальный сервис из AUDIT_SERVICE_URL
-    "AUDIT_ENGINE": "stub"
+    // stub — воронка на заглушке; live — реальный StoryAudit по AUDIT_SERVICE_URL
+    "AUDIT_ENGINE": "stub",
+    // адрес сервиса после деплоя на Render: https://audit.narrativeintelligence.ru
+    "AUDIT_SERVICE_URL": ""
   },
   "assets": {
     "directory": "./public",

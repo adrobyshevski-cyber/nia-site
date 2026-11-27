@@ -181,7 +181,26 @@ public/studio/      страница входа и приложение
 
 Страница `public/demo/` + `lib/audit.js` + `lib/audit-engine.js`. Лимиты: устройство (cookie год) — 1, IP — 8 в час, email — 1 на 30 дней. Состояние задач в KV `AUDIT_KV` (id namespace `d4bb0d870ea84be287c6b7e90bc5376a`), контакты дублируются в Telegram.
 
-Режим движка — переменная `AUDIT_ENGINE`: `stub` (отладка воронки, отчёт не формируется) или `live` + `AUDIT_SERVICE_URL`/`AUDIT_SERVICE_TOKEN` с контрактом `POST /audits` / `GET /audits/{id}`.
+Режим движка — `AUDIT_ENGINE`: `stub` (отладка воронки, отчёта нет) или `live`.
+
+**Live-режим (StoryAudit на Render):**
+
+```
+wrangler.jsonc   AUDIT_ENGINE = "live"
+                 AUDIT_SERVICE_URL = "https://audit.narrativeintelligence.ru"
+секрет воркера   AUDIT_INTERNAL_TOKEN = <PUBLIC_INTERNAL_TOKEN из StoryAudit>
+```
+
+StoryAudit вызывает `POST /audit` (form: website, consent=on) с `accept: application/json`,
+`x-internal-token`, `x-forwarded-for: <IP клиента>`; получает `{token}`; опрашивает
+`GET /audit/{token}/state`; при `ready` забирает `GET /audit/{token}/report?inline=1`
+(самодостаточный HTML) и кладёт в KV `report:<наш токен>`. Отчёт отдаётся на
+`/r/<token>/`, PDF проксируется через `/r/<token>/report.pdf`, ссылки на домен
+сервиса переписываются на наши. Ссылка открывается только после контактов.
+
+Состояния сервиса → наши: `ingesting`→queued, `analyzing`→running, `review`→review,
+`ready`→done, `failed|rejected`→failed, `expired`→expired. Квота события — 20 на
+метку `?ev=`; при исчерпании заявка создаётся в статусе `manual` без движка.
 
 QR: `python scripts/make-qr.py --ev <метка> --caption "..."` → `qr/demo-<метка>.png|svg`.
 
