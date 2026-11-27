@@ -9,6 +9,11 @@
   "kv_namespaces": [
     { "binding": "AUDIT_KV", "id": "d4bb0d870ea84be287c6b7e90bc5376a" }
   ],
+  // CRM (/crm). Раскомментировать после `npx wrangler d1 create nia-crm`:
+  // id из вывода команды; migrations/0001_init.sql применяется отдельно.
+  // "d1_databases": [
+  //   { "binding": "DB", "database_name": "nia-crm", "database_id": "<uuid из wrangler d1 create>" }
+  // ],
   "vars": {
     // stub — воронка на заглушке; live — реальный StoryAudit по AUDIT_SERVICE_URL
     "AUDIT_ENGINE": "live",

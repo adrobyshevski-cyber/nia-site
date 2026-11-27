@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><meta content="#0b0b12" name="theme-color"/><meta content="noindex, nofollow" name="robots"/><title>NIA CRM — лиды и сделки</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link href="/crm/crm.css" rel="stylesheet"/></head><body>
+<main class="gate" id="gate"><div class="gate-box"><div class="eyebrow">[ NIA ] / CRM</div><h1>Лиды и сделки</h1><p class="gate-hint">Тот же пароль, что у /studio. Сессия живёт 12 часов.</p><form class="gate-form" id="login-form" novalidate=""><label for="password">Пароль</label><input autocomplete="current-password" id="password" name="password" placeholder="••••-••••-••••-••••-••••" type="password"/><button class="btn primary" type="submit">Войти</button><p aria-live="polite" class="gate-status" id="gate-status" role="status"></p></form><a class="gate-back" href="/">← на сайт</a><a class="gate-back" href="/studio/">/ studio</a></div></main>
+
+<div class="shell" hidden="" id="app">
+  <header class="head">
+    <span class="mark">NIA</span><span class="where">/ crm</span><span class="state" id="state"></span><span class="spacer"></span>
+    <button class="btn small" id="reload" type="button">⟳ Обновить</button>
+    <button class="btn small" id="logout" type="button">Выйти</button>
+  </header>
+
+  <div class="chips" id="chips"></div>
+
+  <div class="layout">
+    <section class="list-pane">
+      <div class="filters">
+        <input id="q" placeholder="Поиск: имя, email, сайт, телефон" type="search"/>
+        <select id="status"><option value="">Все стадии</option><option value="new">new</option><option value="contacted">contacted</option><option value="qualified">qualified</option><option value="proposal">proposal</option><option value="won">won</option><option value="lost">lost</option><option value="paused">paused</option></select>
+        <select id="source"><option value="">Все источники</option><option value="demo">demo</option><option value="audit_form">audit_form</option><option value="manual">manual</option></select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Дата</th><th>Контакт</th><th>Источник</th><th>Стадия</th><th>Шаг</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="empty" id="empty" hidden="">Пока пусто: лиды появятся после первой заявки с сайта или /demo.</p>
+      </div>
+    </section>
+
+    <aside class="card" hidden="" id="card">
+      <div class="card-head">
+        <div><div class="eyebrow" id="card-source">—</div><h2 id="card-name">—</h2><div class="muted mono" id="card-id"></div></div>
+        <button aria-label="Закрыть" class="close" id="card-close" type="button">✕</button>
+      </div>
+      <div class="block"><h3>Контакты</h3><dl class="kv" id="card-contacts"></dl></div>
+      <div class="block">
+        <h3>Стадия лида</h3>
+        <select id="card-status"></select>
+      </div>
+      <div class="block">
+        <h3>Сделки</h3>
+        <div id="deals"></div>
+        <form id="deal-form">
+          <div class="row2">
+            <div class="field"><label for="deal-service">Услуга</label><select id="deal-service"><option value="audit">audit</option><option value="brand">brand</option><option value="culture">culture</option><option value="economics">economics</option><option value="strategy">strategy</option><option value="lab">lab</option></select></div>
+            <div class="field"><label for="deal-stage">Стадия</label><select id="deal-stage"><option value="new">new</option><option value="contacted">contacted</option><option value="qualified">qualified</option><option value="proposal">proposal</option><option value="won">won</option><option value="lost">lost</option></select></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label for="deal-step">Следующий шаг</label><input id="deal-step" placeholder="Отправить смету"/></div>
+            <div class="field"><label for="deal-when">Когда</label><input id="deal-when" type="date"/></div>
+          </div>
+          <button class="btn small" type="submit">Добавить сделку</button>
+        </form>
+      </div>
+      <div class="block">
+        <h3>Заметки</h3>
+        <ul class="acts" id="acts"></ul>
+        <form id="note-form" style="margin-top:10px"><div class="field"><textarea id="note-text" placeholder="Что обсудили, о чём договорились" rows="3"></textarea></div><button class="btn small" type="submit">Добавить заметку</button></form>
+      </div>
+    </aside>
+  </div>
+</div>
+<script src="/crm/crm.js"></script>
+</body></html>

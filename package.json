@@ -8,12 +8,13 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "build": "python scripts/build-insights.py",
-    "check": "node scripts/check-lead.mjs && node scripts/check-studio.mjs && node scripts/check-import.mjs && node scripts/check-audit.mjs && python scripts/check-links.py",
+    "check": "node scripts/check-lead.mjs && node scripts/check-studio.mjs && node scripts/check-import.mjs && node scripts/check-audit.mjs && node scripts/check-crm.mjs && python scripts/check-links.py",
     "check:leads": "node scripts/check-lead.mjs",
     "check:studio": "node scripts/check-studio.mjs",
     "check:links": "python scripts/check-links.py",
     "check:import": "node scripts/check-import.mjs",
     "check:audit": "node scripts/check-audit.mjs",
+    "check:crm": "node scripts/check-crm.mjs",
     "qr": "python scripts/make-qr.py"
   }
 }

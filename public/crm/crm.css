@@ -1,0 +1,93 @@
+/* NIA CRM — та же палитра, что у /studio */
+:root{--bg:#0b0b12;--panel:#13131d;--panel2:#1a1a27;--line:#2b2940;--text:#f2f0f8;--muted:#9b96b3;--violet:#8d7bff;--violet2:#b3a5ff;--teal:#7fd8c8;--danger:#ff9b8a;--amber:#f0c674}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:15px/1.55 Inter,Manrope,system-ui,-apple-system,Segoe UI,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--violet2)}
+button{font:inherit;cursor:pointer}
+input,textarea,select{font:inherit;color:var(--text);background:#0c0c16;border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%}
+input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+[hidden]{display:none!important}
+.eyebrow{font-size:10.5px;letter-spacing:.14em;color:var(--violet2);font-weight:700;text-transform:uppercase}
+.btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:8px;padding:9px 14px;font-size:14px}
+.btn:hover{background:#242236}
+.btn.primary{background:var(--violet);border-color:var(--violet);color:#0d0b16;font-weight:700}
+.btn.primary:hover{background:var(--violet2)}
+.btn.small{padding:5px 9px;font-size:12.5px}
+.btn:disabled{opacity:.55;cursor:progress}
+.muted{color:var(--muted)}
+.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px}
+
+/* вход */
+.gate{display:grid;place-items:center;min-height:100%;padding:24px}
+.gate-box{width:min(420px,100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:30px}
+.gate-box h1{margin:10px 0 6px;font-size:26px;letter-spacing:-.03em}
+.gate-hint{color:var(--muted);font-size:13px;margin:0 0 22px}
+.gate-form{display:flex;flex-direction:column;gap:8px}
+.gate-form label{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.gate-form .btn{margin-top:12px}
+.gate-status{margin:10px 0 0;font-size:13px;color:var(--danger);min-height:1.2em}
+.gate-back{display:inline-block;margin-top:20px;font-size:13px;color:var(--muted);text-decoration:none}
+.gate-back:hover{color:var(--violet2)}
+
+/* оболочка */
+.shell{height:100%;display:flex;flex-direction:column;overflow:hidden}
+.head{display:flex;align-items:center;gap:14px;padding:11px 18px;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto}
+.head .mark{font-weight:800;letter-spacing:.06em;color:var(--violet2);font-size:14px}
+.head .where{font-size:12.5px;color:var(--muted)}
+.head .spacer{flex:1}
+.head .state{font-size:12.5px;color:var(--muted);min-height:1em}
+.head .state.ok{color:var(--teal)}
+.head .state.err{color:var(--danger)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto}
+.chip{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12.5px;color:var(--muted);background:var(--panel2)}
+.chip b{color:var(--text);font-weight:700}
+.chip.warn{border-color:#57442a;color:var(--amber)}
+
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 420px;flex:1 1 auto;min-height:0}
+.list-pane{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.filters{display:grid;grid-template-columns:1fr 170px 170px;gap:8px;padding:12px 18px;border-bottom:1px solid var(--line)}
+.table-wrap{overflow:auto;min-height:0;flex:1}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{position:sticky;top:0;background:var(--panel);text-align:left;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--line);z-index:1}
+td{padding:9px 12px;border-bottom:1px solid #1e1d2b;vertical-align:top}
+tr.row{cursor:pointer}
+tr.row:hover td{background:#171724}
+tr.row.active td{background:#1d1b2e}
+td .sub{display:block;color:var(--muted);font-size:12px}
+.empty{padding:26px 18px;color:var(--muted)}
+
+/* карточка */
+.card{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;overflow:auto;padding:16px 18px 28px}
+.card-head{display:flex;align-items:flex-start;gap:10px}
+.card-head h2{margin:2px 0 2px;font-size:19px;letter-spacing:-.02em}
+.card-head .close{margin-left:auto;background:none;border:0;color:var(--muted);font-size:18px}
+.block{margin-top:18px;padding-top:14px;border-top:1px solid #232134}
+.block h3{margin:0 0 10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:6px 10px;font-size:13.5px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;word-break:break-word}
+.pill{display:inline-block;border-radius:999px;padding:1px 9px;font-size:11.5px;border:1px solid var(--line);background:var(--panel2)}
+.pill.new{color:#b9c6ff;border-color:#3a3f6b}
+.pill.contacted,.pill.qualified{color:var(--teal);border-color:#2c5a52}
+.pill.proposal{color:var(--amber);border-color:#57442a}
+.pill.won{color:#8bd8a4;border-color:#2f5a3c}
+.pill.lost{color:var(--danger);border-color:#5a3038}
+.pill.paused{color:var(--muted)}
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:9px}
+.field label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.deal{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:9px;background:#101019}
+.deal-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.deal-top .svc{font-weight:700;font-size:13.5px}
+.deal-top select{width:auto;padding:3px 7px;font-size:12.5px}
+.deal .next{font-size:12.5px;color:var(--muted)}
+.acts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.acts li{font-size:13px;border-left:2px solid #2f2c46;padding-left:10px}
+.acts .when{display:block;color:var(--muted);font-size:11.5px}
+.badge{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .card{position:fixed;inset:0;z-index:5;border-left:0}
+  .filters{grid-template-columns:1fr}
+}

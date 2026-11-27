@@ -2,13 +2,13 @@
 
 Документ для того, кто продолжит работу: что где лежит, как деплоится, что уже проверено, где грабли. Обновляется при каждом значимом изменении.
 
-- Последнее обновление: **2026-11-27**
+- Последнее обновление: **2026-11-27** (CRM фаза 1)
 - Версия Worker'а: `ba4ec5fc`
 - Локальный репозиторий: `C:\work\nia_site`, ветка `main`
 - Сервис аудита: `C:\work\narrative_audit` (StoryAudit), `main` = `b63755b`
 - Ротация `CLOUDFLARE_API_TOKEN`: 2026-11-26 (Roll в dash), предыдущее значение отозвано (`401`)
 
-**Следующая сессия начинается с CRM на D1 — см. раздел 12.**
+**Следующая сессия: включить D1 для CRM (раздел 12) — коду не хватает только биндинга `DB`.**
 
 ---
 
@@ -44,6 +44,7 @@ public/                        ← корень ассетов, отдаётся
   demo/                         /demo: экспресс-аудит для QR (index.html, demo.css, demo.js)
   privacy/index.html            политика обработки ПД (черновик, плейсхолдеры реквизитов)
   studio/                       админка редакции (index.html, studio.css, studio.js, import.js)
+  crm/                          CRM: вход, список лидов, карточка (index.html, crm.css, crm.js)
 
 content/articles/*.md           ← ИСТОЧНИК ПРАВДЫ для insights
 templates/insights-article.html шаблон статьи (форма заявки, canonical, OG внутри)
@@ -51,6 +52,7 @@ templates/insights-article.html шаблон статьи (форма заявк
 lib/lead.js                     заявки: валидация + Telegram (текст и файлы)
 lib/audit.js                    /demo: лимиты, квота события, задачи в KV, /r/<token>/
 lib/audit-engine.js             адаптер движка: stub | storyaudit HTTP
+lib/crm.js                      CRM на D1: лиды, сделки, активности, /api/crm/*
 lib/auth.js                     пароль /studio, подписанная cookie, лимит попыток
 lib/frontmatter.js              разбор и сборка файла статьи
 lib/github.js                   GitHub Contents API: чтение, коммит, удаление
@@ -64,6 +66,8 @@ scripts/check-lead.mjs          20 тестов заявок
 scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
 scripts/check-audit.mjs         33 теста /demo
+scripts/check-crm.mjs           30 тестов CRM (настоящий SQLite через node:sqlite)
+migrations/0001_init.sql        схема D1: leads, deals, activities
 scripts/check-links.py          ссылки, формы, SEO, дубли id, контракт клиент↔сервер
 scripts/make-og.py              OG-картинки
 scripts/make-icons.py           favicon и иконки
@@ -147,6 +151,7 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 
 | Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
 | Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
 | `/demo` | `node scripts/check-audit.mjs` | 33: URL/телефон, лимиты устройства и IP, квота события, маппинг состояний StoryAudit, архив отчёта, HTML-файл в Telegram, деградация при сбоях |
+| CRM | `node scripts/check-crm.mjs` | 30: схема на настоящем SQLite (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
 | Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
 
@@ -264,30 +269,52 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 | Ссылка на отчёт «не открывается» | фильтрация домена у провайдера, а не ошибка приложения | проверять через edge, отдавать отчёт файлом в Telegram |
 | Отчёт в `review` после скана | публикацию закрывает Stage Gate | подтвердить в `/ui/scans` или включить авто-публикацию |
 
-## 12. CRM — следующая сессия
+## 12. CRM — /crm на D1
 
-Задача: видеть контакты клиента, этап работы и услугу. Решение: **`/crm` в этом же Worker, хранилище — Cloudflare D1** (SQLite, бесплатно 5 ГБ). Отдельный проект не нужен: авторизация, домен, CI и данные уже рядом.
+Пароль один: `/crm` закрыт той же cookie `nia_studio` (`SESSION_SECRET`, `ADMIN_PASSWORD_HASH`). Отдельных ролей нет — решено владельцем.
 
-**Блокер:** API-токену не хватает права `Account · D1 · Edit` (сейчас `401` на `/d1/database`). Добавить: dash.cloudflare.com/profile/api-tokens → `nia-site-deploy` → Edit → D1 → Edit.
+**Фаза 1 готова в коде** (`lib/crm.js`, `public/crm/`, `migrations/0001_init.sql`, `scripts/check-crm.mjs`). Осталось включить хранилище — нужен токен с правом `Account · D1 · Edit`.
 
-**Срочно до старта:** контакты из `/demo` лежат в `job:<id>` с TTL **6 часов**, то есть заявки теряются. CRM должна писать лиды в D1 (или хотя бы `lead:<id>` в KV на 90 дней).
+### Включение (по шагам)
 
-Схема (минимум):
-
-```
-leads       id, created_at, source, name, email, phone, site, event, report_token, status, consent_at
-deals       id, lead_id, service, stage, next_step, next_step_at
-activities  id, lead_id, deal_id, at, kind, text
+```powershell
+cd C:\work\nia_site
+$env:CLOUDFLARE_API_TOKEN="<токен с D1: Edit>"
+npx wrangler d1 create nia-crm          # взять database_id из вывода
 ```
 
-`source`: `demo` | `audit_form` | `manual`. `service`: audit, brand, culture, economics, strategy, lab.
-`stage`: `new → contacted → qualified → proposal → won | lost` (+ `paused`).
+1. Вставить id в `wrangler.jsonc` → раскомментировать блок `d1_databases` (binding `DB`).
+2. `npx wrangler d1 migrations apply nia-crm --remote`
+3. `npx wrangler deploy` (или пуш в `main` — CI тесты уже включают `check-crm`).
+4. Проверка: `curl.exe -s -o NUL -w "%{http_code}" https://narrativeintelligence.ru/api/crm/leads` → `401` без cookie.
+5. Открыть `/crm/`, войти паролем `/studio/`, отправить тестовую заявку, увидеть лид.
 
-Поток: `/api/audit/reveal` и `/api/lead` пишут лид автоматически, `/demo` привязывает `report_token` и `event`. Экраны: список с фильтрами, карточка лида (контакты, отчёт `/r/<token>/full/`, сделки, заметки, смена стадии), напоминания в Telegram по `next_step_at`, сводка по событиям.
+Локально: `npx wrangler d1 migrations apply nia-crm --local` + `npm run dev` (без токена работает только `--local`).
 
-Фазы: 1 — D1 + схема + автозапись + список и карточка (4–6 ч); 2 — сделки по услугам, заметки, напоминания (3–4 ч); 3 — сводка, CSV, поиск (2–3 ч).
+### Что уже есть
 
-Открытые вопросы к владельцу: стадии воронки, срок хранения данных (152-ФЗ), доступ (только владелец или отдельная роль).
+| Слой | Где | Что делает |
+|---|---|---|
+| Схема | `migrations/0001_init.sql` | `leads`, `deals`, `activities`, индексы, `report_token UNIQUE` |
+| Данные | `lib/crm.js` | `recordLead`, `listLeads`, `getLead`, `updateLead`, `deleteLead`, `addActivity`, `createDeal`, `updateDeal`, `stats` |
+| API | `lib/crm.js` → `handleCrm` | `GET/POST /api/crm/leads`, `GET/PATCH/DELETE /api/crm/leads/:id`, `POST …/:id/deals`, `POST …/:id/activities`, `PATCH/DELETE /api/crm/deals/:id`, `GET /api/crm/stats`, `GET /api/crm/health` |
+| Экраны | `public/crm/` | вход, сводка, список с поиском и фильтрами, карточка: контакты, отчёт `/r/<token>/`, стадия, сделки, заметки |
+| Автозапись | `lib/lead.js`, `lib/audit.js` | `/api/lead` → `audit_form`; `/api/audit/reveal` → `demo` + `report_token`, `event`, `consent_at` |
+
+`source`: `demo` | `audit_form` | `manual`. `service`: audit, brand, culture, economics, strategy, lab. `stage`: new → contacted → qualified → proposal → won | lost (+ paused).
+
+Смена стадии лида и сделки автоматически пишется в `activities` (`kind = stage`) — история не теряется. Дедупликация лидов — по `report_token`: демо-отчёт и последующая форма дают одну запись.
+
+Отказоустойчивость: `recordLead` не бросает исключений и возвращает `null`, если биндинга `DB` нет или D1 вернул ошибку — приём заявок и Telegram от CRM не зависят. `/api/crm/*` без биндинга отвечает `503` с подсказкой.
+
+### Фазы 2–3
+
+- сделки: смена стадии и следующий шаг по услугам, `amount` (в API уже есть, в UI — поле суммы);
+- напоминания в Telegram по `next_step_at`: `triggers.crons` в `wrangler.jsonc` + `scheduled` в `worker.js`, дедупликация отправки в `activities`;
+- сводка по событиям (`event`), выгрузка CSV, пагинация списка (API умеет `limit`/`offset`, UI берёт 100);
+- ручное добавление лида: API `POST /api/crm/leads` есть, в UI — кнопка.
+
+Открытый вопрос: срок хранения (152-ФЗ). Предложение — 180 дней для `leads`/`activities` и cron-чистка; сейчас ретеншена нет, данные живут, пока их не удалят вручную.
 
 ## 13. Бэклог
 
@@ -302,7 +329,8 @@ activities  id, lead_id, deal_id, at, kind, text
 | `/demo`: живой StoryAudit через туннель | **готово** (2026-11-27) |
 | Короткий отчёт на стенде, полный в архив | **готово** |
 | NIA-брендинг в отчёте, приложения C/D убраны | **готово** |
-| **CRM на D1** | **следующая сессия**, нужен `D1: Edit` |
+| **CRM на D1** — фаза 1 (схема, API, `/crm`, автозапись, тесты) | **готово в коде**, для запуска нужен токен с `D1: Edit` |
+| CRM: напоминания, CSV, сводка по событиям | фаза 2–3, см. раздел 12 |
 | Авто-публикация отчётов для публичных заявок | решение не принято: сейчас каждый отчёт подтверждается вручную |
 | Дедупликация источников в реестре S01/S02 | не начато (дубли одного домена) |
 | Конкурентный раздел: до 2 сайтов из `/demo` | не начато |

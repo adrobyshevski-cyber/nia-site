@@ -9,6 +9,7 @@
 import { handleLead, json } from "./lib/lead.js";
 import { handleStudio } from "./lib/studio.js";
 import { handleAudit, handleReport } from "./lib/audit.js";
+import { handleCrm } from "./lib/crm.js";
 
 const HSTS = "max-age=15552000"; // 180 дней, без includeSubDomains
 
@@ -58,7 +59,12 @@ function harden(response, pathname) {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(BASE_HEADERS)) headers.set(name, value);
   headers.set("cache-control", cachePolicy(pathname));
-  if (pathname.startsWith("/studio") || pathname.startsWith("/demo") || pathname.startsWith("/privacy")) {
+  if (
+    pathname.startsWith("/studio") ||
+    pathname.startsWith("/demo") ||
+    pathname.startsWith("/crm") ||
+    pathname.startsWith("/privacy")
+  ) {
     headers.set("x-robots-tag", "noindex, nofollow");
   }
   return new Response(response.body, {
@@ -119,6 +125,10 @@ export default {
 
     if (url.pathname.startsWith("/api/audit/")) {
       return handleAudit(request, env, url.pathname);
+    }
+
+    if (url.pathname === "/api/crm" || url.pathname.startsWith("/api/crm/")) {
+      return handleCrm(request, env, url.pathname);
     }
 
     if (url.pathname.startsWith("/api/")) {

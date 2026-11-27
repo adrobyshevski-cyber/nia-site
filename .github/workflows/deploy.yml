@@ -45,6 +45,9 @@ jobs:
       - name: Тесты /demo (лимиты, статусы, контакты)
         run: node scripts/check-audit.mjs
 
+      - name: Тесты CRM (схема D1, лиды, сделки)
+        run: node scripts/check-crm.mjs
+
       - name: Ссылки, формы, canonical/OG/sitemap
         run: python scripts/check-links.py
 

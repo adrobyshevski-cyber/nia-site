@@ -3,6 +3,8 @@ Allow: /
 Disallow: /api/
 Disallow: /studio
 Disallow: /studio/
+Disallow: /crm
+Disallow: /crm/
 Disallow: /demo
 Disallow: /privacy
 

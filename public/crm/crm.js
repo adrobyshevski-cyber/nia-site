@@ -1,0 +1,315 @@
+/* NIA CRM — клиент. Все данные через /api/crm/*, вход — /studio/login (один пароль). */
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost", "paused"];
+  const SOURCE_LABEL = { demo: "demo · стенд", audit_form: "форма сайта", manual: "вручную" };
+
+  const state = { leads: [], total: 0, currentId: "", query: { q: "", status: "", source: "" }, timer: 0 };
+
+  const escape = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+  const say = (text, kind = "") => {
+    const el = $("state");
+    el.textContent = text;
+    el.className = `state ${kind}`;
+  };
+
+  const fmt = (iso) => {
+    if (!iso) return "—";
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return escape(iso);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${String(date.getFullYear()).slice(2)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const pill = (stage) => `<span class="pill ${escape(stage || "new")}">${escape(stage || "new")}</span>`;
+
+  class AuthError extends Error {}
+  class NotReady extends Error {}
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, { credentials: "same-origin", headers: { "content-type": "application/json" }, ...options });
+    if (res.status === 401) throw new AuthError("Нужен вход.");
+    const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+    if (res.status === 503) throw new NotReady(data.error || "D1 не подключён.");
+    if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  function showGate(message = "") {
+    $("app").hidden = true;
+    $("gate").hidden = false;
+    $("gate-status").textContent = message;
+  }
+
+  function showApp() {
+    $("gate").hidden = true;
+    $("app").hidden = false;
+  }
+
+  // ---------- вход ----------
+  $("login-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const password = $("password").value;
+    $("gate-status").textContent = "";
+    try {
+      const res = await fetch("/studio/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Неверный пароль.");
+      $("password").value = "";
+      showApp();
+      await refresh();
+    } catch (error) {
+      $("gate-status").textContent = error.message;
+    }
+  });
+
+  $("logout").addEventListener("click", async () => {
+    await fetch("/studio/logout", { method: "GET", credentials: "same-origin" }).catch(() => {});
+    showGate();
+  });
+
+  // ---------- список ----------
+  async function loadLeads() {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(state.query)) if (value) params.set(key, value);
+    params.set("limit", "100");
+    const data = await api(`/api/crm/leads?${params}`);
+    state.leads = data.items || [];
+    state.total = data.total || 0;
+    renderRows();
+  }
+
+  function renderRows() {
+    const rows = $("rows");
+    rows.innerHTML = state.leads
+      .map((lead) => {
+        const parts = [lead.name || "без имени"];
+        if (lead.email) parts.push(lead.email);
+        if (lead.phone) parts.push(lead.phone);
+        if (lead.site) parts.push(lead.site);
+        const next = lead.next_at ? `до ${fmt(lead.next_at)}` : lead.deal_stage ? "" : "—";
+        return `<tr class="row ${lead.id === state.currentId ? "active" : ""}" data-id="${escape(lead.id)}">
+          <td class="mono">${fmt(lead.created_at)}</td>
+          <td>${escape(parts[0])}${parts.slice(1).map((p) => `<span class="sub">${escape(p)}</span>`).join("")}</td>
+          <td><span class="badge">${escape(SOURCE_LABEL[lead.source] || lead.source)}</span>${lead.event ? `<span class="sub">${escape(lead.event)}</span>` : ""}</td>
+          <td>${pill(lead.status)}${lead.deal_count ? `<span class="sub">${lead.deal_count} сделка · ${escape(lead.deal_stage || "")}</span>` : ""}</td>
+          <td class="muted">${next || "—"}</td>
+        </tr>`;
+      })
+      .join("");
+    $("empty").hidden = state.leads.length > 0;
+    for (const row of rows.querySelectorAll("tr.row")) {
+      row.addEventListener("click", () => openLead(row.dataset.id));
+    }
+  }
+
+  // ---------- карточка ----------
+  async function openLead(id) {
+    state.currentId = id;
+    renderRows();
+    try {
+      const data = await api(`/api/crm/leads/${encodeURIComponent(id)}`);
+      renderCard(data);
+    } catch (error) {
+      say(error.message, "err");
+    }
+  }
+
+  function renderCard({ lead, deals, activities }) {
+    $("card").hidden = false;
+    $("card-source").textContent = `${SOURCE_LABEL[lead.source] || lead.source} · ${fmt(lead.created_at)}`;
+    $("card-name").textContent = lead.name || "без имени";
+    $("card-id").textContent = lead.id;
+
+    const rows = [
+      lead.email ? `<dt>Email</dt><dd><a href="mailto:${escape(lead.email)}">${escape(lead.email)}</a></dd>` : "",
+      lead.phone ? `<dt>Телефон</dt><dd><a href="tel:${escape(lead.phone.replace(/[^+\d]/g, ""))}">${escape(lead.phone)}</a></dd>` : "",
+      lead.site ? `<dt>Сайт</dt><dd>${/^https?:/.test(lead.site) ? `<a href="${escape(lead.site)}" rel="noopener" target="_blank">${escape(lead.site)}</a>` : escape(lead.site)}</dd>` : "",
+      lead.event ? `<dt>Событие</dt><dd>${escape(lead.event)}</dd>` : "",
+      lead.report_token ? `<dt>Отчёт</dt><dd><a href="/r/${escape(lead.report_token)}/" rel="noopener" target="_blank">для клиента ↗</a> · <a href="/r/${escape(lead.report_token)}/full/" rel="noopener" target="_blank">полный ↗</a></dd>` : "",
+      lead.consent_at ? `<dt>Согласие</dt><dd>${fmt(lead.consent_at)}</dd>` : `<dt>Согласие</dt><dd class="muted">не зафиксировано</dd>`,
+    ];
+    $("card-contacts").innerHTML = rows.filter(Boolean).join("");
+
+    $("card-status").innerHTML = STAGES.map(
+      (stage) => `<option value="${stage}"${stage === lead.status ? " selected" : ""}>${stage}</option>`,
+    ).join("");
+
+    $("deals").innerHTML = deals.length
+      ? deals
+          .map(
+            (deal) => `<div class="deal" data-deal="${escape(deal.id)}">
+              <div class="deal-top"><span class="svc">${escape(deal.service)}</span>
+                <select class="deal-stage">${STAGES.map((s) => `<option value="${s}"${s === deal.stage ? " selected" : ""}>${s}</option>`).join("")}</select>
+                <span class="spacer" style="flex:1"></span>
+                <button class="btn small deal-del" type="button">Удалить</button>
+              </div>
+              <div class="next">${deal.next_step ? escape(deal.next_step) : "шаг не задан"}${deal.next_step_at ? ` · ${fmt(deal.next_step_at)}` : ""}</div>
+            </div>`,
+          )
+          .join("")
+      : `<p class="muted" style="font-size:13px;margin:0 0 10px">Сделок пока нет.</p>`;
+
+    for (const box of $("deals").querySelectorAll(".deal")) {
+      const dealId = box.dataset.deal;
+      box.querySelector(".deal-stage").addEventListener("change", (event) =>
+        saveDeal(dealId, { stage: event.target.value }),
+      );
+      box.querySelector(".deal-del").addEventListener("click", async () => {
+        if (!confirm("Удалить сделку?")) return;
+        await api(`/api/crm/deals/${encodeURIComponent(dealId)}`, { method: "DELETE" }).catch((e) => say(e.message, "err"));
+        openLead(state.currentId);
+      });
+    }
+
+    $("acts").innerHTML = activities.length
+      ? activities
+          .map(
+            (act) => `<li><span class="when">${fmt(act.at)} · ${escape(act.kind)}</span>${escape(act.text)}</li>`,
+          )
+          .join("")
+      : `<li class="muted">Заметок нет.</li>`;
+  }
+
+  async function saveDeal(id, payload) {
+    try {
+      await api(`/api/crm/deals/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) });
+      await openLead(state.currentId);
+      await refreshStats();
+    } catch (error) {
+      say(error.message, "err");
+    }
+  }
+
+  $("card-close").addEventListener("click", () => {
+    $("card").hidden = true;
+    state.currentId = "";
+    renderRows();
+  });
+
+  $("card-status").addEventListener("change", async (event) => {
+    try {
+      await api(`/api/crm/leads/${encodeURIComponent(state.currentId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: event.target.value }),
+      });
+      await openLead(state.currentId);
+      await loadLeads();
+      await refreshStats();
+      say("Стадия обновлена", "ok");
+    } catch (error) {
+      say(error.message, "err");
+    }
+  });
+
+  $("note-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = $("note-text").value.trim();
+    if (!text) return;
+    try {
+      await api(`/api/crm/leads/${encodeURIComponent(state.currentId)}/activities`, {
+        method: "POST",
+        body: JSON.stringify({ kind: "note", text }),
+      });
+      $("note-text").value = "";
+      await openLead(state.currentId);
+      say("Заметка добавлена", "ok");
+    } catch (error) {
+      say(error.message, "err");
+    }
+  });
+
+  $("deal-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const when = $("deal-when").value;
+    const payload = {
+      service: $("deal-service").value,
+      stage: $("deal-stage").value,
+      next_step: $("deal-step").value.trim(),
+      next_step_at: when ? new Date(`${when}T09:00:00`).toISOString() : null,
+    };
+    try {
+      await api(`/api/crm/leads/${encodeURIComponent(state.currentId)}/deals`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      $("deal-step").value = "";
+      $("deal-when").value = "";
+      await openLead(state.currentId);
+      await loadLeads();
+      await refreshStats();
+      say("Сделка добавлена", "ok");
+    } catch (error) {
+      say(error.message, "err");
+    }
+  });
+
+  // ---------- сводка и фильтры ----------
+  async function refreshStats() {
+    try {
+      const data = await api("/api/crm/stats");
+      const total = data.totals || {};
+      const sources = (data.sources || [])
+        .map((row) => `<span class="chip">${escape(SOURCE_LABEL[row.source] || row.source)} <b>${Number(row.n) || 0}</b></span>`)
+        .join("");
+      const upcoming = (data.upcoming || []).filter((deal) => deal.next_step_at).length;
+      $("chips").innerHTML = [
+        `<span class="chip">лидов за 30 дней <b>${Number(total.leads30) || 0}</b></span>`,
+        `<span class="chip">всего <b>${Number(total.leads) || 0}</b></span>`,
+        `<span class="chip">открытых сделок <b>${Number(total.open_deals) || 0}</b></span>`,
+        `<span class="chip">won <b>${Number(total.won) || 0}</b></span>`,
+        upcoming ? `<span class="chip warn">шагов на неделю <b>${upcoming}</b></span>` : "",
+        sources,
+      ]
+        .filter(Boolean)
+        .join("");
+    } catch (error) {
+      if (!(error instanceof NotReady)) return;
+      $("chips").innerHTML = `<span class="chip warn">${escape(error.message)}</span>`;
+    }
+  }
+
+  async function refresh() {
+    try {
+      await loadLeads();
+      await refreshStats();
+      say(`Лидов в выборке: ${state.leads.length} из ${state.total}`, "ok");
+    } catch (error) {
+      if (error instanceof AuthError) return showGate("Сессия истекла — войдите заново.");
+      say(error.message, "err");
+    }
+  }
+
+  const onFilter = () => {
+    clearTimeout(state.timer);
+    state.timer = setTimeout(() => {
+      state.query = { q: $("q").value.trim(), status: $("status").value, source: $("source").value };
+      refresh();
+    }, 220);
+  };
+  for (const id of ["q", "status", "source"]) $(id).addEventListener("input", onFilter);
+  $("reload").addEventListener("click", refresh);
+
+  // ---------- старт ----------
+  (async () => {
+    try {
+      const res = await fetch("/studio/api/session", { credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (!data.authenticated) return showGate();
+      showApp();
+      await refresh();
+    } catch {
+      showGate("Сервер недоступен.");
+    }
+  })();
+})();
