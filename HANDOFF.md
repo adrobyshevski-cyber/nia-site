@@ -67,8 +67,9 @@ scripts/check-lead.mjs          20 тестов заявок
 scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
 scripts/check-audit.mjs         33 теста /demo
-scripts/check-crm.mjs           30 тестов CRM (настоящий SQLite через node:sqlite)
+scripts/check-crm.mjs           40 тестов CRM и напоминаний (настоящий SQLite)
 migrations/0001_init.sql        схема D1: leads, deals, activities
+migrations/0002_reminders.sql   deals.reminded_at + индекс для cron-напоминаний
 scripts/check-links.py          ссылки, формы, SEO, дубли id, контракт клиент↔сервер
 scripts/make-og.py              OG-картинки
 scripts/make-icons.py           favicon и иконки
@@ -152,7 +153,7 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 
 | Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
 | Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
 | `/demo` | `node scripts/check-audit.mjs` | 33: URL/телефон, лимиты устройства и IP, квота события, маппинг состояний StoryAudit, архив отчёта, HTML-файл в Telegram, деградация при сбоях |
-| CRM | `node scripts/check-crm.mjs` | 30: схема на настоящем SQLite (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
+| CRM | `node scripts/check-crm.mjs` | 40: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
 | Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
 
@@ -274,7 +275,7 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 
 Пароль один: `/crm` закрыт той же cookie `nia_studio` (`SESSION_SECRET`, `ADMIN_PASSWORD_HASH`). Отдельных ролей нет — решено владельцем.
 
-**Фаза 1 готова в коде** (`lib/crm.js`, `public/crm/`, `migrations/0001_init.sql`, `scripts/check-crm.mjs`). Осталось включить хранилище — нужен токен с правом `Account · D1 · Edit`.
+**Фаза 1 включена, фаза 2 (напоминания) задеплоена.** Код: `lib/crm.js`, `public/crm/`, `migrations/`, `scripts/check-crm.mjs` (40 тестов).
 
 ### Включено (2026-11-27)
 
@@ -282,9 +283,10 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 |---|---|
 | D1 | `nia-crm`, id `8b00676a-4065-477c-a031-02bfebbbc7bf`, регион EEUR |
 | Биндинг | `DB` в `wrangler.jsonc` |
-| Миграция | `0001_init.sql` применена (`wrangler d1 migrations apply nia-crm --remote`) |
-| Деплой | версия `29b35a7d-7ec7-4d1d-b9f7-fcecc708b30a` |
-| Проверено | `/api/crm/leads` без cookie → `401`; тестовая заявка через `/api/lead` легла в `leads` (строка затем удалена) |
+| Миграции | `0001_init.sql`, `0002_reminders.sql` применены (`wrangler d1 migrations apply nia-crm --remote`) |
+| Напоминания | cron `*/15 * * * *` в `wrangler.jsonc` → `scheduled` в `worker.js` |
+| Токен CI | `CLOUDFLARE_API_TOKEN` в Secrets, права включают deploy с D1 |
+| Проверено | `/api/crm/leads` без cookie → `401`; заявка через `/api/lead` легла в `leads`; cron отработал `sent:1, due:1`, `reminded_at` и событие `system` записаны (тестовые строки удалены) |
 
 Вход в CLI — **OAuth через браузер**, а не конструктор токенов: `npx wrangler login` (браузер открывается сам, права включают `d1:write`). Токен нужен только CI — `CLOUDFLARE_API_TOKEN` в GitHub Secrets; для него в дашборде правится существующий `nia-site-deploy` → `Account · D1 · Edit`.
 
@@ -297,13 +299,17 @@ npx wrangler d1 migrations apply nia-crm --local        # локальная к�
 npx wrangler deploy                                     # деплой без CI
 ```
 
-Грабли: curl из Windows-шелла портит кириллицу в теле запроса (U+FFFD в D1) — проверять через Python `urllib` или из браузера.
+Грабли:
+
+- curl из Windows-шелла портит кириллицу в теле запроса (U+FFFD в D1) — проверять через Python `urllib` или из браузера.
+- после `wrangler deploy` с новым `triggers.crons` ближайший запуск может не сработать: расписание регистрируется в момент деплоя (`schedules` → `created_on`), первый реальный тик — следующий слот. Проверять `npx wrangler tail --format json` в момент тика: в логе будет `crm reminders {"sent":N}`.
+- `wrangler d1 execute --json` иногда печатает не JSON (прогресс-строки) — читать вывод без `--json` глазами или парсить последний объект.
 
 ### Что уже есть
 
 | Слой | Где | Что делает |
 |---|---|---|
-| Схема | `migrations/0001_init.sql` | `leads`, `deals`, `activities`, индексы, `report_token UNIQUE` |
+| Схема | `migrations/*.sql` | `leads`, `deals` (+`reminded_at`), `activities`, индексы, `report_token UNIQUE` |
 | Данные | `lib/crm.js` | `recordLead`, `listLeads`, `getLead`, `updateLead`, `deleteLead`, `addActivity`, `createDeal`, `updateDeal`, `stats` |
 | API | `lib/crm.js` → `handleCrm` | `GET/POST /api/crm/leads`, `GET/PATCH/DELETE /api/crm/leads/:id`, `POST …/:id/deals`, `POST …/:id/activities`, `PATCH/DELETE /api/crm/deals/:id`, `GET /api/crm/stats`, `GET /api/crm/health` |
 | Экраны | `public/crm/` | вход, сводка, список с поиском и фильтрами, карточка: контакты, отчёт `/r/<token>/`, стадия, сделки, заметки |
@@ -318,7 +324,7 @@ npx wrangler deploy                                     # деплой без CI
 ### Фазы 2–3
 
 - сделки: смена стадии и следующий шаг по услугам, `amount` (в API уже есть, в UI — поле суммы);
-- напоминания в Telegram по `next_step_at`: `triggers.crons` в `wrangler.jsonc` + `scheduled` в `worker.js`, дедупликация отправки в `activities`;
+- ~~напоминания в Telegram по `next_step_at`~~ — **готово и проверено на проде 2026-11-27**: cron `*/15`, дедупликация `deals.reminded_at` (сбрасывается при смене срока), событие `system` в ленте, кнопка «⏰ Напомнить», `POST /api/crm/reminders/run`, deeplink `/crm/?lead=<id>`;
 - сводка по событиям (`event`), выгрузка CSV, пагинация списка (API умеет `limit`/`offset`, UI берёт 100);
 - ручное добавление лида: API `POST /api/crm/leads` есть, в UI — кнопка.
 

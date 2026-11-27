@@ -16,10 +16,13 @@ import {
   createDeal,
   crmReady,
   deleteLead,
+  dueReminders,
   getLead,
   handleCrm,
   listLeads,
   recordLead,
+  reminderMessage,
+  runReminders,
   stats,
   updateDeal,
   updateLead,
@@ -74,13 +77,16 @@ function makeD1(sqlite) {
   };
 }
 
+const MIGRATIONS = ["0001_init.sql", "0002_reminders.sql"].map((name) => ({
+  name,
+  sql: readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"),
+}));
+
 function freshDb() {
   const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
+  for (const migration of MIGRATIONS) sqlite.exec(migration.sql);
   return { sqlite, db: makeD1(sqlite) };
 }
-
-const MIGRATIONS_SQL = readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8");
 
 const ENV = { SESSION_SECRET: "test-secret", ADMIN_PASSWORD_HASH: "sha256$x$y" };
 
@@ -117,7 +123,15 @@ async function main() {
 
   await check("миграция идемпотентна (повторный запуск не падает)", () => {
     const { sqlite } = freshDb();
-    sqlite.exec(MIGRATIONS_SQL);
+    sqlite.exec(MIGRATIONS[0].sql);
+    sqlite.exec("DROP INDEX IF EXISTS idx_deals_remind");
+    sqlite.exec(MIGRATIONS[1].sql.replace("ALTER TABLE deals ADD COLUMN reminded_at TEXT;", ""));
+  });
+
+  await check("миграция 0002 добавляет deals.reminded_at", () => {
+    const { sqlite } = freshDb();
+    const columns = sqlite.prepare("PRAGMA table_info(deals)").all().map((row) => row.name);
+    assert(columns.includes("reminded_at"), `колонки: ${columns.join(", ")}`);
   });
 
   await check("report_token уникален, пустые значения не конфликтуют", () => {
@@ -352,9 +366,112 @@ async function main() {
     assert(summary.upcoming.length === 1, "ближайшие шаги не попали в сводку");
   });
 
+  console.log("check-crm: напоминания");
+
+  const past = new Date(Date.now() - 3 * 3600_000).toISOString();
+  const future = new Date(Date.now() + 3 * 3600_000).toISOString();
+
+  async function seedDeal({ service = "audit", stage = "proposal", nextStep = "Отправить смету", when = past } = {}) {
+    const { db, demo } = await seed();
+    const deal = await createDeal({ DB: db }, demo, { service });
+    await updateDeal({ DB: db }, deal.id, { stage, next_step: nextStep, next_step_at: when });
+    return { db, demo, deal };
+  }
+
+  await check("в выборку попадают только наступившие шаги", async () => {
+    const { db } = await seedDeal();
+    assert((await dueReminders({ DB: db })).length === 1, "наступивший шаг не попал в выборку");
+
+    const later = await seedDeal({ when: future });
+    assert((await dueReminders({ DB: later.db })).length === 0, "будущий шаг не должен напоминаться");
+
+    const won = await seedDeal({ stage: "won" });
+    assert((await dueReminders({ DB: won.db })).length === 0, "закрытая сделка не должна напоминаться");
+
+    const lost = await seedDeal({ stage: "lost" });
+    assert((await dueReminders({ DB: lost.db })).length === 0, "проигранная сделка не должна напоминаться");
+  });
+
+  await check("шаг без даты не напоминается", async () => {
+    const { db, demo } = await seed();
+    await createDeal({ DB: db }, demo, { service: "brand", next_step: "Позвонить" });
+    assert((await dueReminders({ DB: db })).length === 0, "сделка без next_step_at попала в напоминания");
+  });
+
+  await check("текст сообщения: услуга, шаг, контакт и deeplink", () => {
+    const html = reminderMessage([
+      {
+        id: "d1",
+        lead_id: "L-1",
+        service: "audit",
+        stage: "proposal",
+        next_step: "Отправить <смету>",
+        next_step_at: past,
+        name: "Иван Петров",
+        site: "company.ru",
+      },
+    ], past);
+    assert(html.includes("audit · proposal"), "нет услуги и стадии");
+    assert(html.includes("Отправить &lt;смету&gt;"), "нет шага или не экранирован HTML");
+    assert(html.includes("Иван Петров") && html.includes("company.ru"), "нет контакта");
+    assert(html.includes("/crm/?lead=L-1"), "нет deeplink на карточку");
+  });
+
+  await check("runReminders отправляет один раз и пишет в ленту", async () => {
+    const { db, demo } = await seedDeal();
+    const sent = [];
+    const notify = async (html) => sent.push(html);
+
+    const first = await runReminders({ DB: db }, notify);
+    assert(first.sent === 1, `первый запуск: ${first.sent}`);
+    assert(sent.length === 1, `сообщений: ${sent.length}`);
+    assert(sent[0].includes("Отправить смету"), "в сообщении нет шага");
+
+    const second = await runReminders({ DB: db }, notify);
+    assert(second.sent === 0 && second.due === 0, "повторная отправка без нового срока");
+    assert(sent.length === 1, "второе сообщение не должно уходить");
+
+    const card = await getLead({ DB: db }, demo);
+    assert(card.activities.some((act) => act.kind === "system"), "событие напоминания не попало в ленту");
+  });
+
+  await check("сбой Telegram не помечает шаг — уйдёт следующим запуском", async () => {
+    const { db } = await seedDeal();
+    const realError = console.error;
+    console.error = () => {};
+    const failed = await runReminders({ DB: db }, async () => {
+      throw new Error("Telegram 500");
+    });
+    console.error = realError;
+
+    assert(failed.sent === 0 && failed.due === 1, `итог: ${JSON.stringify(failed)}`);
+    assert((await dueReminders({ DB: db })).length === 1, "шаг отмечен напомненным при сбое");
+  });
+
+  await check("новый next_step_at сбрасывает отметку и шаг напоминается снова", async () => {
+    const { db, deal } = await seedDeal();
+    let count = 0;
+    const notify = async () => {
+      count += 1;
+    };
+    await runReminders({ DB: db }, notify);
+    assert(count === 1, "первое напоминание не ушло");
+    assert((await dueReminders({ DB: db })).length === 0, "шаг не отмечен");
+
+    await updateDeal({ DB: db }, deal.id, { next_step_at: past });
+    assert((await dueReminders({ DB: db })).length === 1, "отметка не сброшена новым сроком");
+    await runReminders({ DB: db }, notify);
+    assert(count === 2, "повторное напоминание не ушло");
+  });
+
+  await check("без D1 runReminders не падает", async () => {
+    const result = await runReminders({}, async () => {});
+    assert(result.sent === 0 && result.skipped === "no-db", JSON.stringify(result));
+  });
+
   console.log("check-crm: API и доступ");
 
-  async function callCrm(env, { method = "GET", path = "/api/crm/leads", body, origin, cookie } = {}) {
+  async function callCrm(env, { method = "GET", path = "/api/crm/leads", body, origin, cookie, deps } = {}) {
     const headers = { "content-type": "application/json" };
     if (origin) headers.origin = origin;
     if (cookie) headers.cookie = cookie;
@@ -363,7 +480,7 @@ async function main() {
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-    const response = await handleCrm(request, env, path);
+    const response = await handleCrm(request, env, path, deps);
     const data = await response.clone().json().catch(() => ({}));
     return { status: response.status, data };
   }
@@ -438,6 +555,36 @@ async function main() {
     assert(unknown.status === 404, `статус: ${unknown.status}`);
     const health = await callCrm(env, { cookie, path: "/api/crm/health" });
     assert(health.status === 200 && health.data.d1 === true, "health не отвечает");
+  });
+
+  await check("ручной запуск напоминаний: 401 без сессии, 503 без Telegram, отправка с каналом", async () => {
+    const { db } = await seedDeal();
+    const env = { ...ENV, DB: db };
+    const cookie = await cookieFor(env);
+
+    const anonymous = await callCrm(env, { method: "POST", path: "/api/crm/reminders/run" });
+    assert(anonymous.status === 401, `без сессии: ${anonymous.status}`);
+
+    const noChannel = await callCrm(env, { cookie, method: "POST", path: "/api/crm/reminders/run" });
+    assert(noChannel.status === 503, `без notify: ${noChannel.status}`);
+
+    const sent = [];
+    const withChannel = await callCrm(env, {
+      cookie,
+      method: "POST",
+      path: "/api/crm/reminders/run",
+      deps: { notify: async (html) => sent.push(html) },
+    });
+    assert(withChannel.status === 200 && withChannel.data.sent === 1, JSON.stringify(withChannel.data));
+    assert(sent.length === 1, "сообщение не ушло");
+
+    const again = await callCrm(env, {
+      cookie,
+      method: "POST",
+      path: "/api/crm/reminders/run",
+      deps: { notify: async (html) => sent.push(html) },
+    });
+    assert(again.data.sent === 0, "повторный ручной запуск отправил дубль");
   });
 
   console.log(failed ? `\ncheck-crm: провалено ${failed}` : "\ncheck-crm: все проверки пройдены");

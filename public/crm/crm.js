@@ -117,6 +117,10 @@
   async function openLead(id) {
     state.currentId = id;
     renderRows();
+    // deeplink: /crm/?lead=<id> — по такой ссылке приходит напоминание из Telegram
+    const cardUrl = new URL(location.href);
+    cardUrl.searchParams.set("lead", id);
+    history.replaceState(null, "", cardUrl);
     try {
       const data = await api(`/api/crm/leads/${encodeURIComponent(id)}`);
       renderCard(data);
@@ -194,6 +198,9 @@
   $("card-close").addEventListener("click", () => {
     $("card").hidden = true;
     state.currentId = "";
+    const closed = new URL(location.href);
+    closed.searchParams.delete("lead");
+    history.replaceState(null, "", closed);
     renderRows();
   });
 
@@ -300,6 +307,26 @@
   for (const id of ["q", "status", "source"]) $(id).addEventListener("input", onFilter);
   $("reload").addEventListener("click", refresh);
 
+  $("remind").addEventListener("click", async () => {
+    $("remind").disabled = true;
+    try {
+      const data = await api("/api/crm/reminders/run", { method: "POST", body: "{}" });
+      say(
+        Number(data.sent)
+          ? `Напоминаний отправлено: ${Number(data.sent)}`
+          : data.due
+            ? `Не отправлено: ${data.error || data.skipped || "нет канала"}`
+            : "Напоминать нечего — шагов на сегодня нет",
+        data.sent ? "ok" : "",
+      );
+      await refreshStats();
+    } catch (error) {
+      say(error.message, "err");
+    } finally {
+      $("remind").disabled = false;
+    }
+  });
+
   // ---------- старт ----------
   (async () => {
     try {
@@ -308,6 +335,8 @@
       if (!data.authenticated) return showGate();
       showApp();
       await refresh();
+      const deep = new URLSearchParams(location.search).get("lead");
+      if (deep) await openLead(deep);
     } catch {
       showGate("Сервер недоступен.");
     }

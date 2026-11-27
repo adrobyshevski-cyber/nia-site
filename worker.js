@@ -6,10 +6,10 @@
  * поэтому security-заголовки и политика кэша живут здесь.
  */
 
-import { handleLead, json } from "./lib/lead.js";
+import { handleLead, json, notifyTelegram } from "./lib/lead.js";
 import { handleStudio } from "./lib/studio.js";
 import { handleAudit, handleReport } from "./lib/audit.js";
-import { handleCrm } from "./lib/crm.js";
+import { handleCrm, runReminders } from "./lib/crm.js";
 
 const HSTS = "max-age=15552000"; // 180 дней, без includeSubDomains
 
@@ -128,7 +128,7 @@ export default {
     }
 
     if (url.pathname === "/api/crm" || url.pathname.startsWith("/api/crm/")) {
-      return handleCrm(request, env, url.pathname);
+      return handleCrm(request, env, url.pathname, { notify: (html) => notifyTelegram(env, html) });
     }
 
     if (url.pathname.startsWith("/api/")) {
@@ -142,5 +142,19 @@ export default {
 
     const response = await env.ASSETS.fetch(request);
     return harden(response, url.pathname);
+  },
+
+  /**
+   * Cron (wrangler.jsonc → triggers.crons): напоминания по next_step_at в тот
+   * же чат, что и заявки. Дедупликация — deals.reminded_at, поэтому частый cron
+   * безопасен: второй запуск ничего не отправит.
+   */
+  async scheduled(controller, env) {
+    try {
+      const result = await runReminders(env, (html) => notifyTelegram(env, html));
+      console.log("crm reminders", JSON.stringify({ cron: controller?.cron, ...result }));
+    } catch (error) {
+      console.error("crm reminders failed", String(error?.message || error));
+    }
   },
 };

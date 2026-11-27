@@ -19,6 +19,11 @@
     // StoryAudit на локальной машине через Cloudflare Tunnel
     "AUDIT_SERVICE_URL": "https://audit.narrativeintelligence.ru"
   },
+  // Напоминания CRM по deals.next_step_at (см. worker.js → scheduled).
+  // Каждые 15 минут: deals.reminded_at не даёт отправить дважды.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
