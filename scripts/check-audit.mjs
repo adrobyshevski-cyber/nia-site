@@ -66,7 +66,7 @@ const telegramOk = async (url, init) => {
 };
 
 /** Заглушка StoryAudit: поведение задаётся через объект service. */
-const service = { state: "analyzing", reportHtml: "", pdf: "%PDF-1.4", calls: [], fail: false };
+const service = { state: "analyzing", reportHtml: "", fullHtml: "", pdf: "%PDF-1.4", calls: [], reportQueries: [], fail: false };
 
 const serviceFetch = async (url, init = {}) => {
   const path = new URL(url).pathname;
@@ -82,7 +82,10 @@ const serviceFetch = async (url, init = {}) => {
     return new Response(JSON.stringify({ state: service.state, report_url: null, error: null }), { status: 200 });
   }
   if (path.endsWith("/report")) {
-    return new Response(service.reportHtml, { status: 200, headers: { "content-type": "text/html" } });
+    const isBrief = new URL(url).searchParams.get("brief") === "1";
+    const html = isBrief ? service.reportHtml : (service.fullHtml || service.reportHtml);
+    service.reportQueries.push(isBrief ? "brief" : "full");
+    return new Response(html, { status: 200, headers: { "content-type": "text/html" } });
   }
   if (path.endsWith("/report.pdf")) {
     return new Response(service.pdf, { status: 200, headers: { "content-type": "application/pdf" } });
@@ -96,7 +99,9 @@ const resetService = () => {
     '<html><head><link rel="stylesheet" href="/static/report_v2.css"></head><body>' +
     '<a href="/audit/story-token-1/report.pdf">PDF</a></body></html>';
   service.calls = [];
+  service.reportQueries = [];
   service.fail = false;
+  service.fullHtml = '<html><body>ПОЛНЫЙ ОТЧЁТ: 17 разделов</body></html>';
 };
 
 globalThis.fetch = async (url, init) => {
@@ -411,6 +416,41 @@ await check("готовый отчёт забирается и переписы�
   assert(!report.html.includes("/audit/story-token-1/"), "остались ссылки на домен сервиса");
 });
 
+await check("короткий и полный отчёт сохраняются оба", async () => {
+  resetService();
+  const env = liveEnv();
+  const started = await (await call(env, "/api/audit/start", { method: "POST", body: { url: "https://a.example" } })).json();
+  service.state = "ready";
+  await call(env, `/api/audit/status?id=${started.job.id}`);
+
+  const stored = JSON.parse(await env.AUDIT_KV.get(`job:${started.job.id}`));
+  const brief = JSON.parse(await env.AUDIT_KV.get(`report:${stored.reportToken}`));
+  const full = JSON.parse(await env.AUDIT_KV.get(`report-full:${stored.reportToken}`));
+
+  assert(service.reportQueries.includes("brief") && service.reportQueries.includes("full"), `запросы: ${service.reportQueries}`);
+  assert(brief.html.includes("report.pdf"), "короткая версия без PDF-ссылки");
+  assert(full.html.includes("ПОЛНЫЙ ОТЧЁТ"), "полный отчёт не сохранён в архив");
+});
+
+await check("полный отчёт открывается по /r/<token>/full/", async () => {
+  resetService();
+  const env = liveEnv();
+  const started = await (await call(env, "/api/audit/start", { method: "POST", body: { url: "https://a.example" } })).json();
+  service.state = "ready";
+  await call(env, `/api/audit/status?id=${started.job.id}`);
+  const stored = JSON.parse(await env.AUDIT_KV.get(`job:${started.job.id}`));
+
+  const page = await handleReport(
+    new Request(`https://narrativeintelligence.ru/r/${stored.reportToken}/full/`),
+    env,
+    `/r/${stored.reportToken}/full/`,
+  );
+  const html = await page.text();
+  assert(page.status === 200, `статус ${page.status}`);
+  assert(html.includes("ПОЛНЫЙ ОТЧЁТ"), "по /full/ отдалась короткая версия");
+  assert(page.headers.get("x-robots-tag") === "noindex, nofollow", "нет noindex");
+});
+
 await check("статус не отдаёт ссылку на отчёт до контактов", async () => {
   resetService();
   const env = liveEnv();
@@ -513,6 +553,7 @@ await check("HTML-отчёт уходит файлом в Telegram", async () =>
   assert(doc.isFormData && doc.hasBlob, "документ отправлен не как файл");
   assert(/narrative-audit-.*\.html$/.test(doc.filename || ""), `имя файла: ${doc.filename}`);
   assert(doc.type === "text/html", `тип файла: ${doc.type}`);
+  assert(service.reportQueries.includes("full"), "файл должен быть полной версией");
 });
 
 await check("неизвестный метод API → 404", async () => {
