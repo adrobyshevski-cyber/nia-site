@@ -17,7 +17,10 @@
     // stub — воронка на заглушке; live — реальный StoryAudit по AUDIT_SERVICE_URL
     "AUDIT_ENGINE": "live",
     // StoryAudit на локальной машине через Cloudflare Tunnel
-    "AUDIT_SERVICE_URL": "https://audit.narrativeintelligence.ru"
+    "AUDIT_SERVICE_URL": "https://audit.narrativeintelligence.ru",
+    // CRM: сколько дней хранить персональные данные лида (152-ФЗ).
+    // Чистка — worker.js → scheduled, раз в сутки в 03:00 UTC.
+    "CRM_RETENTION_DAYS": "180"
   },
   // Напоминания CRM по deals.next_step_at (см. worker.js → scheduled).
   // Каждые 15 минут: deals.reminded_at не даёт отправить дважды.

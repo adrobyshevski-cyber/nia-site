@@ -16,7 +16,10 @@ import {
   createDeal,
   crmReady,
   deleteLead,
+  applyRetention,
   dueReminders,
+  exportDealsCsv,
+  exportLeadsCsv,
   getLead,
   handleCrm,
   listLeads,
@@ -394,6 +397,90 @@ async function main() {
     assert(summary.upcoming.length === 1, "ближайшие шаги не попали в сводку");
   });
 
+  console.log("check-crm: CSV, события, срок хранения");
+
+  await check("CSV лидов: BOM, заголовок, разделитель ;", async () => {
+    const { db } = await seed();
+    const csv = await exportLeadsCsv({ DB: db });
+    assert(csv.startsWith("\uFEFF"), "нет BOM для Excel");
+    const lines = csv.slice(1).split("\r\n").filter(Boolean);
+    assert(lines[0].split(";")[0] === "id" && lines[0].includes("email"), `заголовок: ${lines[0]}`);
+    assert(lines.length === 3, `строк: ${lines.length}`);
+  });
+
+  await check("CSV лидов: фильтры и экранирование кавычек и ;", async () => {
+    const { db } = freshDb();
+    await recordLead({ DB: db }, { source: "manual", email: "a@b.ru", name: 'ООО "Ромашка"; отдел' });
+    const filtered = await exportLeadsCsv({ DB: db }, { source: "manual" });
+    assert(filtered.includes('"ООО ""Ромашка""; отдел"'), `поле не экранировано: ${filtered}`);
+
+    const empty = await exportLeadsCsv({ DB: db }, { source: "demo" });
+    assert(empty.slice(1).split("\r\n").filter(Boolean).length === 1, "фильтр не применился к CSV");
+  });
+
+  await check("CSV сделок: лид, услуга, сумма, стадия", async () => {
+    const { db, demo } = await seed();
+    const deal = await createDeal({ DB: db }, demo, { service: "strategy", stage: "proposal", amount: 90000 });
+    const csv = await exportDealsCsv({ DB: db });
+    assert(csv.startsWith("\uFEFF"), "нет BOM");
+    assert(csv.includes("lead_email"), "нет заголовка с email лида");
+    assert(csv.includes(deal.id) && csv.includes("90000") && csv.includes("proposal"), `нет данных сделки: ${csv}`);
+  });
+
+  await check("сводка разбивает по событиям и считает отчёты", async () => {
+    const { db } = await seed();
+    const summary = await stats({ DB: db });
+    const conf = summary.events.find((row) => row.event === "conf-2026");
+    assert(conf && conf.n === 1 && conf.reports === 1, `события: ${JSON.stringify(summary.events)}`);
+    const form = summary.events.find((row) => row.event === "/audit/");
+    assert(form && form.reports === 0, `форма сайта не должна считаться отчётом: ${JSON.stringify(form)}`);
+  });
+
+  async function seedAged() {
+    const { db, demo, form } = await seed();
+    const old = new Date(Date.now() - 200 * 86400_000).toISOString();
+    await db.prepare("UPDATE leads SET created_at = ? WHERE id = ?").bind(old, demo).run();
+    await addActivity({ DB: db }, demo, { kind: "note", text: "старая заметка" });
+    await db.prepare("UPDATE activities SET at = ? WHERE lead_id = ?").bind(old, demo).run();
+    return { db, demo, form, old };
+  }
+
+  await check("срок хранения: dry-run только считает и ничего не меняет", async () => {
+    const { db, demo } = await seedAged();
+    const result = await applyRetention({ DB: db }, { days: 180 });
+    assert(result.dryRun === true, "по умолчанию должен быть dry-run");
+    assert(result.leads === 1, `лидов под обезличивание: ${result.leads}`);
+    assert(result.activities === 1, `заметок к удалению: ${result.activities}`);
+
+    const card = await getLead({ DB: db }, demo);
+    assert(card.lead.email === "anna@example.ru", "dry-run изменил данные");
+  });
+
+  await check("срок хранения: обезличивает старый лид, свежий не трогает, заметки чистит", async () => {
+    const { db, demo, form } = await seedAged();
+    const result = await applyRetention({ DB: db }, { days: 180, dryRun: false });
+    assert(result.leads === 1 && result.activities === 1, JSON.stringify(result));
+
+    const old = await getLead({ DB: db }, demo);
+    assert(old.lead.name === null && old.lead.email === null && old.lead.phone === null, "контакты не обезличены");
+    assert(old.lead.report_token === null, "токен отчёта остался");
+    assert(old.activities.length === 0, "старые заметки не удалены");
+    assert(old.lead.site === "example.ru" && old.lead.event === "conf-2026", "аналитику потеряли");
+    assert(old.lead.created_at < new Date(Date.now() - 180 * 86400_000).toISOString(), "дата создания изменилась");
+
+    const fresh = await getLead({ DB: db }, form);
+    assert(fresh.lead.email === "ivan@company.ru", "свежий лид обезличен");
+  });
+
+  await check("срок хранения не трогает лид с открытой сделкой", async () => {
+    const { db, demo } = await seedAged();
+    await createDeal({ DB: db }, demo, { service: "audit", stage: "proposal" });
+    const result = await applyRetention({ DB: db }, { days: 180, dryRun: false });
+    assert(result.leads === 0 && result.keptOpen === 1, JSON.stringify(result));
+    const card = await getLead({ DB: db }, demo);
+    assert(card.lead.email === "anna@example.ru", "лид с открытой сделкой обезличен");
+  });
+
   console.log("check-crm: напоминания");
 
   const past = new Date(Date.now() - 3 * 3600_000).toISOString();
@@ -593,6 +680,34 @@ async function main() {
 
     const list = await callCrm(env, { cookie, path: "/api/crm/leads?source=manual" });
     assert(list.data.total === 1, `в списке: ${list.data.total}`);
+  });
+
+  await check("CSV и срок хранения через API: сессия, dry-run по умолчанию", async () => {
+    const { db, demo } = await seedAged();
+    const env = { ...ENV, DB: db };
+    const cookie = await cookieFor(env);
+
+    const anonymous = await callCrm(env, { path: "/api/crm/export.csv" });
+    assert(anonymous.status === 401, `CSV без сессии: ${anonymous.status}`);
+
+    const request = new Request("https://narrativeintelligence.ru/api/crm/export.csv?type=leads&source=demo", {
+      headers: { cookie },
+    });
+    const response = await handleCrm(request, env, "/api/crm/export.csv");
+    assert(response.status === 200, `CSV: ${response.status}`);
+    assert((response.headers.get("content-type") || "").includes("text/csv"), "не text/csv");
+    assert((response.headers.get("content-disposition") || "").includes("nia-crm-leads-"), "нет имени файла");
+    const body = await response.text();
+    assert(body.includes("anna@example.ru"), "фильтр source=demo не сработал");
+
+    const retention = await callCrm(env, { cookie, method: "POST", path: "/api/crm/retention/run" });
+    assert(retention.status === 200 && retention.data.dryRun === true, JSON.stringify(retention.data));
+
+    const card = await getLead({ DB: db }, demo);
+    assert(card.lead.email === "anna@example.ru", "API-запуск без dry=0 изменил данные");
+
+    const real = await callCrm(env, { cookie, method: "POST", path: "/api/crm/retention/run?dry=0" });
+    assert(real.data.dryRun === false && real.data.leads === 1, JSON.stringify(real.data));
   });
 
   await check("неизвестный маршрут — 404, health — 200", async () => {

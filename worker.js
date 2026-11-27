@@ -9,7 +9,7 @@
 import { handleLead, json, notifyTelegram } from "./lib/lead.js";
 import { handleStudio } from "./lib/studio.js";
 import { handleAudit, handleReport } from "./lib/audit.js";
-import { handleCrm, runReminders } from "./lib/crm.js";
+import { handleCrm, runReminders, applyRetention } from "./lib/crm.js";
 
 const HSTS = "max-age=15552000"; // 180 дней, без includeSubDomains
 
@@ -150,11 +150,25 @@ export default {
    * безопасен: второй запуск ничего не отправит.
    */
   async scheduled(controller, env) {
+    const when = new Date(controller?.scheduledTime || Date.now());
     try {
       const result = await runReminders(env, (html) => notifyTelegram(env, html));
       console.log("crm reminders", JSON.stringify({ cron: controller?.cron, ...result }));
     } catch (error) {
       console.error("crm reminders failed", String(error?.message || error));
+    }
+
+    // срок хранения (152-ФЗ): обезличивание лидов и чистка заметок — раз в сутки, в 03:00 UTC
+    if (when.getUTCHours() === 3 && when.getUTCMinutes() < 15) {
+      try {
+        const retention = await applyRetention(env, {
+          days: Number(env.CRM_RETENTION_DAYS) || 180,
+          dryRun: false,
+        });
+        console.log("crm retention", JSON.stringify(retention));
+      } catch (error) {
+        console.error("crm retention failed", String(error?.message || error));
+      }
     }
   },
 };

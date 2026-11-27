@@ -67,7 +67,7 @@ scripts/check-lead.mjs          20 тестов заявок
 scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
 scripts/check-audit.mjs         33 теста /demo
-scripts/check-crm.mjs           42 теста CRM и напоминаний (настоящий SQLite)
+scripts/check-crm.mjs           50 тестов CRM: напоминания, CSV, события, срок хранения
 migrations/0001_init.sql        схема D1: leads, deals, activities
 migrations/0002_reminders.sql   deals.reminded_at + индекс для cron-напоминаний
 scripts/check-links.py          ссылки, формы, SEO, дубли id, контракт клиент↔сервер
@@ -153,7 +153,7 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 
 | Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
 | Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
 | `/demo` | `node scripts/check-audit.mjs` | 33: URL/телефон, лимиты устройства и IP, квота события, маппинг состояний StoryAudit, архив отчёта, HTML-файл в Telegram, деградация при сбоях |
-| CRM | `node scripts/check-crm.mjs` | 42: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
+| CRM | `node scripts/check-crm.mjs` | 50: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
 | Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
 
@@ -285,6 +285,7 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 | Биндинг | `DB` в `wrangler.jsonc` |
 | Миграции | `0001_init.sql`, `0002_reminders.sql` применены (`wrangler d1 migrations apply nia-crm --remote`) |
 | Напоминания | cron `*/15 * * * *` в `wrangler.jsonc` → `scheduled` в `worker.js` |
+| Срок хранения | `CRM_RETENTION_DAYS=180`; обезличивание лидов и чистка заметок — в `scheduled` раз в сутки в 03:00 UTC |
 | Токен CI | `CLOUDFLARE_API_TOKEN` в Secrets, права включают deploy с D1 |
 | Проверено | `/api/crm/leads` без cookie → `401`; заявка через `/api/lead` легла в `leads`; cron отработал `sent:1, due:1`, `reminded_at` и событие `system` записаны (тестовые строки удалены) |
 
@@ -311,7 +312,7 @@ npx wrangler deploy                                     # деплой без CI
 |---|---|---|
 | Схема | `migrations/*.sql` | `leads`, `deals` (+`reminded_at`), `activities`, индексы, `report_token UNIQUE` |
 | Данные | `lib/crm.js` | `recordLead`, `listLeads`, `getLead`, `updateLead`, `deleteLead`, `addActivity`, `createDeal`, `updateDeal`, `stats` |
-| API | `lib/crm.js` → `handleCrm` | `GET/POST /api/crm/leads`, `GET/PATCH/DELETE /api/crm/leads/:id`, `POST …/:id/deals`, `POST …/:id/activities`, `PATCH/DELETE /api/crm/deals/:id`, `GET /api/crm/stats`, `GET /api/crm/health` |
+| API | `lib/crm.js` → `handleCrm` | `GET/POST /api/crm/leads`, `GET/PATCH/DELETE /api/crm/leads/:id`, `POST …/:id/deals`, `POST …/:id/activities`, `PATCH/DELETE /api/crm/deals/:id`, `GET /api/crm/stats`, `GET /api/crm/export.csv?type=leads или type=deals`, `POST /api/crm/reminders/run`, `POST /api/crm/retention/run[?dry=0]`, `GET /api/crm/health` |
 | Экраны | `public/crm/` | вход, сводка, список с поиском и фильтрами, карточка: контакты, отчёт `/r/<token>/`, стадия, сделки, заметки |
 | Автозапись | `lib/lead.js`, `lib/audit.js` | `/api/lead` → `audit_form`; `/api/audit/reveal` → `demo` + `report_token`, `event`, `consent_at` |
 
@@ -326,10 +327,13 @@ npx wrangler deploy                                     # деплой без CI
 - ~~сделки: сумма~~ — **готово 2026-11-27**: поле суммы при создании и правка прямо в карточке, `amount` валидируется (неотрицательное целое), показывается в `₽`;
 - ~~ручное добавление лида~~ — **готово 2026-11-27**: кнопка «+ Лид», поля имя/email/телефон/сайт/контекст (`leads.notes`), после создания сразу открывается карточка;
 - ~~напоминания в Telegram по `next_step_at`~~ — **готово и проверено на проде 2026-11-27**: cron `*/15`, дедупликация `deals.reminded_at` (сбрасывается при смене срока), событие `system` в ленте, кнопка «⏰ Напомнить», `POST /api/crm/reminders/run`, deeplink `/crm/?lead=<id>`;
-- сводка по событиям (`event`), выгрузка CSV, пагинация списка (API умеет `limit`/`offset`, UI берёт 100);
+- ~~выгрузка CSV~~ — **готово 2026-11-27**: `GET /api/crm/export.csv?type=leads|deals`, кнопки «⤓ лиды» / «⤓ сделки» (лиды — с текущими фильтрами), `;` + BOM для Excel;
+- ~~сводка по событиям~~ — **готово 2026-11-27**: `stats.events` (лиды и отчёты по каждой метке `event`), чипы в `/crm/`;
+- ~~срок хранения~~ — **готово 2026-11-27**: `applyRetention` — лиды старше `CRM_RETENTION_DAYS` (180) обезличиваются (имя, email, телефон, заметки, `report_token`), лиды с открытыми сделками остаются, заметки старше срока удаляются; проверить без изменений — чип «срок хранения ⏳» (`POST /api/crm/retention/run?dry=1`);
+- пагинация списка (API умеет `limit`/`offset`, UI берёт 100);
 - ручное добавление лида: API `POST /api/crm/leads` есть, в UI — кнопка.
 
-Открытый вопрос: срок хранения (152-ФЗ). Предложение — 180 дней для `leads`/`activities` и cron-чистка; сейчас ретеншена нет, данные живут, пока их не удалят вручную.
+Срок хранения решён: **180 дней**, настраивается переменной `CRM_RETENTION_DAYS` без правки кода. Выбран вариант «обезличивание», не удаление: статистика и воронка по старым лидам сохраняются, персональные данные стираются.
 
 ## 13. Бэклог
 

@@ -355,6 +355,12 @@
         .map((row) => `<span class="chip">${escape(SOURCE_LABEL[row.source] || row.source)} <b>${Number(row.n) || 0}</b></span>`)
         .join("");
       const upcoming = (data.upcoming || []).filter((deal) => deal.next_step_at).length;
+      const events = (data.events || [])
+        .map(
+          (row) =>
+            `<span class="chip">${escape(row.event)} <b>${Number(row.n) || 0}</b>${row.reports ? ` · отчётов ${Number(row.reports)}` : ""}</span>`,
+        )
+        .join("");
       $("chips").innerHTML = [
         `<span class="chip">лидов за 30 дней <b>${Number(total.leads30) || 0}</b></span>`,
         `<span class="chip">всего <b>${Number(total.leads) || 0}</b></span>`,
@@ -362,6 +368,8 @@
         `<span class="chip">won <b>${Number(total.won) || 0}</b></span>`,
         upcoming ? `<span class="chip warn">шагов на неделю <b>${upcoming}</b></span>` : "",
         sources,
+        events,
+        `<button class="chip" id="retention" title="Проверить, что попадёт под срок хранения (152-ФЗ)" type="button">срок хранения ⏳</button>`,
       ]
         .filter(Boolean)
         .join("");
@@ -391,6 +399,29 @@
   };
   for (const id of ["q", "status", "source"]) $(id).addEventListener("input", onFilter);
   $("reload").addEventListener("click", refresh);
+
+  const downloadCsv = (type) => {
+    const params = new URLSearchParams({ type });
+    if (type === "leads") {
+      for (const [key, value] of Object.entries(state.query)) if (value) params.set(key, value);
+    }
+    location.href = `/api/crm/export.csv?${params}`;
+  };
+  $("export-leads").addEventListener("click", () => downloadCsv("leads"));
+  $("export-deals").addEventListener("click", () => downloadCsv("deals"));
+
+  $("chips").addEventListener("click", async (event) => {
+    if (event.target.closest("#retention") === null) return;
+    try {
+      const data = await api("/api/crm/retention/run?dry=1", { method: "POST", body: "{}" });
+      say(
+        `Срок ${data.days} дн.: под обезличивание ${data.leads}, оставить (открытые сделки) ${data.keptOpen}, заметок к удалению ${data.activities}`,
+        data.leads ? "" : "ok",
+      );
+    } catch (error) {
+      say(error.message, "err");
+    }
+  });
 
   $("remind").addEventListener("click", async () => {
     $("remind").disabled = true;
