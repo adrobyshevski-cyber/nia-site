@@ -234,6 +234,8 @@ GET /audit/{token}/report?inline=1[&brief=1] → самодостаточный 
 
 Гейт остаётся источником правды: сервис публикует только сканы в `succeeded`+`review`, а отказ (409) не ломает заявку — статус остаётся `review`, текст ошибки пишется в `job.autoPublishError`. Stub-демо не публикуется никогда. Чтобы фича заработала, нужен задеплоенный StoryAudit с `/publish` (иначе 404 → статус остаётся `review`).
 
+**Включено и проверено 2026-11-27, 00:59 UTC:** StoryAudit перезапущен (`scripts/start-public.ps1`, `/publish` отвечает `403` без токена), флаг `AUDIT_AUTO_PUBLISH=1` задеплоен. Контрольный аудит `example.com` с меткой `auto-publish-check` прошёл `queued → done` без ручного подтверждения: в `review_events` запись `auto:nia-site / approve / stage_gate`, в KV `job.autoPublishedAt` и `report:<token>` на месте.
+
 ### Отчёты
 
 | Что | Где | Срок |
@@ -275,7 +277,7 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 | Cloudflared: `failed to dial quic` | провайдер режет UDP/7844 | `protocol: http2` в конфиге туннеля |
 | `cert.pem` не подхватывался | файл скачался в `Downloads` | положить в `C:\Users\User\.cloudflared\cert.pem` |
 | Ссылка на отчёт «не открывается» | фильтрация домена у провайдера, а не ошибка приложения | проверять через edge, отдавать отчёт файлом в Telegram |
-| Отчёт в `review` после скана | публикацию закрывает Stage Gate | подтвердить в `/ui/scans` или включить `AUDIT_AUTO_PUBLISH=1` (ваходит `POST /audit/{token}/publish`) |
+| Отчёт в `review` после скана | публикацию закрывает Stage Gate | подтвердить в `/ui/scans` или включить `AUDIT_AUTO_PUBLISH=1` (воркер зовёт `POST /audit/{token}/publish`) |
 
 ## 12. CRM — /crm на D1
 

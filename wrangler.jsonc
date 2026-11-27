@@ -19,8 +19,8 @@
     // StoryAudit на локальной машине через Cloudflare Tunnel
     "AUDIT_SERVICE_URL": "https://audit.narrativeintelligence.ru",
     // Авто-публикация отчётов /demo без ручного Stage Gate.
-    // "0" — каждый отчёт подтверждается вручную (по умолчанию), "1" — публикуем сразу.
-    "AUDIT_AUTO_PUBLISH": "0",
+    // "0" — каждый отчёт подтверждается вручную, "1" — публикуем сразу (включено 2026-11-27).
+    "AUDIT_AUTO_PUBLISH": "1",
     // CRM: сколько дней хранить персональные данные лида (152-ФЗ).
     // Чистка — worker.js → scheduled, раз в сутки в 03:00 UTC.
     "CRM_RETENTION_DAYS": "180"
