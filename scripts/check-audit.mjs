@@ -910,8 +910,11 @@ await check("по готовности отчёт привязывается к 
   const lead = await env.DB.prepare("SELECT report_token FROM leads WHERE id = ?").bind(env.DB.leadId).first();
   assert(lead.report_token, "report_token не записан в лид");
 
-  const activity = await env.DB.prepare("SELECT text FROM activities WHERE lead_id = ?").bind(env.DB.leadId).first();
-  assert(activity && /Отчёт аудита готов/.test(activity.text), "нет события в ленте лида");
+  const activity = await env.DB
+    .prepare("SELECT COUNT(*) AS n FROM activities WHERE lead_id = ? AND text LIKE '%Отчёт аудита готов%'")
+    .bind(env.DB.leadId)
+    .first();
+  assert(Number(activity.n) === 1, `событий в ленте: ${activity.n}`);
 });
 
 globalThis.fetch = realFetch;
