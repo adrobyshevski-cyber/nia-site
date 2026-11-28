@@ -418,4 +418,4 @@ npx wrangler deploy                                     # деплой без CI
 | Тесты | lead 20, studio 19, import 12, audit 49, crm 54, links 0 проблем; CI зелёный | §7 |
 | Дальше | переезд на VPS (единственный способ не зависеть от домашней сети), Resend, RSS, .docx | §13 |
 
-Ключи хранятся: Worker-секреты (, , , , ) — в Cloudflare; сервис —  (gitignored); AWS/GitHub Actions — , .
+Секреты: Worker — `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `ADMIN_PASSWORD_HASH`, `SESSION_SECRET`, `GITHUB_TOKEN`, `AUDIT_INTERNAL_TOKEN` (Cloudflare secrets); сервис — `.env.production` (gitignored); CI — `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (GitHub Secrets).
