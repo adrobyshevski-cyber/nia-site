@@ -5,7 +5,55 @@
  * Запуск: node scripts/check-audit.mjs
  */
 
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+
 import { handleAudit, handleReport, auditInternals } from "../lib/audit.js";
+import { createSessionToken } from "../lib/auth.js";
+
+
+/** Мини-адаптер D1 поверх node:sqlite: нужен, чтобы проверить запись отчёта в CRM. */
+function makeCrmDb() {
+  const sqlite = new DatabaseSync(":memory:");
+  for (const name of ["0001_init.sql", "0002_reminders.sql"]) {
+    sqlite.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+  }
+  const leadId = "lead-42";
+  sqlite
+    .prepare("INSERT INTO leads (id, created_at, source, name, site, status) VALUES (?, ?, 'manual', 'Test lead', 'client.example', 'new')")
+    .run(leadId, new Date().toISOString());
+
+  const db = {
+    leadId,
+    prepare(sql) {
+      const statement = { sql, params: [] };
+      const api = {
+        bind(...params) {
+          statement.params = params;
+          return api;
+        },
+        async first() {
+          const row = sqlite.prepare(statement.sql).get(...statement.params);
+          return row ? { ...row } : null;
+        },
+        async all() {
+          const rows = sqlite.prepare(statement.sql).all(...statement.params);
+          return { results: rows.map((row) => ({ ...row })), success: true };
+        },
+        async run() {
+          return { success: true, meta: { changes: sqlite.prepare(statement.sql).run(...statement.params).changes } };
+        },
+      };
+      return api;
+    },
+    async batch(list) {
+      const out = [];
+      for (const item of list) out.push(await item.all());
+      return out;
+    },
+  };
+  return db;
+}
 
 const ENV = {
   SESSION_SECRET: "test-secret",
@@ -735,6 +783,94 @@ await check("выдача контактов по заявке с конкуре
     body: { id, name: "Иван", email: "comp@example.com", phone: "+79991234567", consent: true },
   });
   assert(res.status === 200, `статус ${res.status}`);
+});
+
+console.log("\nручной аудит из CRM");
+
+const studioCookie = async (env) => `nia_studio=${await createSessionToken(env)}`;
+
+await check("ручной запуск требует сессию /studio", async () => {
+  const env = await freshEnv();
+  const res = await call(env, "/api/audit/manual", { method: "POST", body: { url: "https://client.example" } });
+  assert(res.status === 401, `без cookie: ${res.status}`);
+});
+
+await check("ручной запуск с чужого origin — 403", async () => {
+  const env = await freshEnv();
+  const cookie = await studioCookie(env);
+  const res = await call(env, "/api/audit/manual", {
+    method: "POST",
+    body: { url: "https://client.example" },
+    cookie,
+    origin: "https://evil.example",
+  });
+  assert(res.status === 403, `статус: ${res.status}`);
+});
+
+await check("ручной запуск идёт в сервис, помечен manual и помнит лид", async () => {
+  resetService();
+  const env = liveEnv();
+  const cookie = await studioCookie(env);
+  const res = await call(env, "/api/audit/manual", {
+    method: "POST",
+    body: { url: "https://client.example", leadId: "lead-42" },
+    cookie,
+  });
+  const data = await res.json();
+  assert(res.status === 200 && data.ok, `статус ${res.status} ${JSON.stringify(data)}`);
+  assert(data.job.manual === true, "нет пометки manual");
+
+  const job = JSON.parse(await env.AUDIT_KV.get(`job:${data.job.id}`));
+  assert(job.leadId === "lead-42", `leadId: ${job.leadId}`);
+  assert(job.manual === true, "manual не сохранён");
+  assert(service.calls.some((entry) => entry.path === "/audit"), "аудит не запущен в сервисе");
+});
+
+await check("ручной запуск не упирается в лимиты устройства и сети", async () => {
+  const env = await freshEnv();
+  const cookie = await studioCookie(env);
+  await env.AUDIT_KV.put("dev:used-device", "1");
+  await env.AUDIT_KV.put("dev:another", "1");
+
+  for (let i = 0; i < 3; i += 1) {
+    const res = await call(env, "/api/audit/manual", {
+      method: "POST",
+      body: { url: `https://site${i}.example`, leadId: "lead-1" },
+      cookie,
+      ip: "203.0.113.9",
+    });
+    assert(res.status === 200, `запуск ${i + 1}: статус ${res.status}`);
+  }
+});
+
+await check("ручной запуск отклоняет плохой адрес", async () => {
+  const env = await freshEnv();
+  const cookie = await studioCookie(env);
+  const res = await call(env, "/api/audit/manual", { method: "POST", body: { url: "не url" }, cookie });
+  assert(res.status === 400, `статус: ${res.status}`);
+});
+
+await check("по готовности отчёт привязывается к лиду", async () => {
+  resetService();
+  service.state = "ready";
+  const env = { ...liveEnv(), DB: makeCrmDb() };
+  const cookie = await studioCookie(env);
+
+  const started = await (await call(env, "/api/audit/manual", {
+    method: "POST",
+    body: { url: "https://client.example", leadId: env.DB.leadId },
+    cookie,
+  })).json();
+
+  const res = await call(env, `/api/audit/status?id=${started.job.id}`, { cookie });
+  const data = await res.json();
+  assert(data.job.status === "done", `статус: ${data.job.status}`);
+
+  const lead = await env.DB.prepare("SELECT report_token FROM leads WHERE id = ?").bind(env.DB.leadId).first();
+  assert(lead.report_token, "report_token не записан в лид");
+
+  const activity = await env.DB.prepare("SELECT text FROM activities WHERE lead_id = ?").bind(env.DB.leadId).first();
+  assert(activity && /Отчёт аудита готов/.test(activity.text), "нет события в ленте лида");
 });
 
 globalThis.fetch = realFetch;

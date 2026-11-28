@@ -17,6 +17,7 @@ import {
   crmReady,
   deleteLead,
   applyRetention,
+  attachReportToLead,
   dueReminders,
   exportDealsCsv,
   exportLeadsCsv,
@@ -391,6 +392,27 @@ async function main() {
       garbage = error.message;
     }
     assert(garbage.includes("Сумма"), `нечисловая сумма не отклонена: «${garbage}»`);
+  });
+
+  await check("отчёт аудита привязывается к лиду один раз", async () => {
+    const { db, demo, form } = await seed();
+    assert((await attachReportToLead({ DB: db }, demo, "tok_manual_1")) === demo, "не привязался");
+
+    const card = await getLead({ DB: db }, demo);
+    assert(card.lead.report_token === "tok_manual_1", `токен: ${card.lead.report_token}`);
+    assert(card.activities.some((act) => act.kind === "system" && /Отчёт аудита готов/.test(act.text)), "нет события");
+
+    // повторная запись того же токена не плодит события
+    assert((await attachReportToLead({ DB: db }, demo, "tok_manual_1")) === null, "ожидали null при повторе");
+    const again = await getLead({ DB: db }, demo);
+    assert(again.activities.length === card.activities.length, "событие продублировалось");
+
+    // тот же отчёт нельзя отдать другому лиду: report_token уникален
+    assert((await attachReportToLead({ DB: db }, form, "tok_manual_1")) === null, "токен ушёл второму лиду");
+    const other = await getLead({ DB: db }, form);
+    assert(other.lead.report_token === null, "второй лид получил токен");
+
+    assert((await attachReportToLead({}, demo, "tok")) === null, "без D1 ожидали null");
   });
 
   await check("удаление лида уносит сделки и активности", async () => {

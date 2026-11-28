@@ -66,8 +66,8 @@ scripts/build-insights.py       сборка insights из Markdown
 scripts/check-lead.mjs          20 тестов заявок
 scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
-scripts/check-audit.mjs         42 теста /demo
-scripts/check-crm.mjs           51 тест CRM: напоминания, CSV, события, срок хранения, пагинация
+scripts/check-audit.mjs         48 тестов /demo
+scripts/check-crm.mjs           52 теста CRM: напоминания, CSV, события, срок хранения, пагинация
 migrations/0001_init.sql        схема D1: leads, deals, activities
 migrations/0002_reminders.sql   deals.reminded_at + индекс для cron-напоминаний
 scripts/check-links.py          ссылки, формы, SEO, дубли id, контракт клиент↔сервер
@@ -152,8 +152,8 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 
 | Заявки | `node scripts/check-lead.mjs` | 20 сценариев: валидация, honeypot, formData без JS, 303 для нативной отправки, www→apex, ошибки каналов |
 | Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
 | Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
-| `/demo` | `node scripts/check-audit.mjs` | 42: URL/телефон, лимиты устройства и IP, квота события, конкуренты (до 2, дубли/свой сайт), маппинг состояний StoryAudit, авто-публикация (вкл/выкл/отказ), архив отчёта, HTML-файл в Telegram, деградация при сбоях |
-| CRM | `node scripts/check-crm.mjs` | 51: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
+| `/demo` | `node scripts/check-audit.mjs` | 48: URL/телефон, лимиты устройства и IP, квота события, конкуренты (до 2, дубли/свой сайт), маппинг состояний StoryAudit, авто-публикация (вкл/выкл/отказ), архив отчёта, HTML-файл в Telegram, деградация при сбоях |
+| CRM | `node scripts/check-crm.mjs` | 52: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
 | Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
 
@@ -320,11 +320,13 @@ npx wrangler deploy                                     # деплой без CI
 |---|---|---|
 | Схема | `migrations/*.sql` | `leads`, `deals` (+`reminded_at`), `activities`, индексы, `report_token UNIQUE` |
 | Данные | `lib/crm.js` | `recordLead`, `listLeads`, `getLead`, `updateLead`, `deleteLead`, `addActivity`, `createDeal`, `updateDeal`, `stats` |
-| API | `lib/crm.js` → `handleCrm` | `GET/POST /api/crm/leads`, `GET/PATCH/DELETE /api/crm/leads/:id`, `POST …/:id/deals`, `POST …/:id/activities`, `PATCH/DELETE /api/crm/deals/:id`, `GET /api/crm/stats`, `GET /api/crm/export.csv?type=leads или type=deals`, `POST /api/crm/reminders/run`, `POST /api/crm/retention/run[?dry=0]`, `GET /api/crm/health` |
-| Экраны | `public/crm/` | вход, сводка, список с поиском и фильтрами, карточка: контакты, отчёт `/r/<token>/`, стадия, сделки, заметки |
+| API | `lib/crm.js` → `handleCrm` | `GET/POST /api/crm/leads`, `GET/PATCH/DELETE /api/crm/leads/:id`, `POST …/:id/deals`, `POST …/:id/activities`, `PATCH/DELETE /api/crm/deals/:id`, `GET /api/crm/stats`, `GET /api/crm/export.csv?type=leads или type=deals`, `POST /api/crm/reminders/run`, `POST /api/crm/retention/run[?dry=0]`, `GET /api/crm/health`; ручной аудит — `POST /api/audit/manual` (сессия `/studio`) |
+| Экраны | `public/crm/` | вход, сводка, список с поиском и фильтрами, карточка: контакты, **ручной аудит сайта**, отчёт `/r/<token>/`, стадия, сделки, заметки |
 | Автозапись | `lib/lead.js`, `lib/audit.js` | `/api/lead` → `audit_form`; `/api/audit/reveal` → `demo` + `report_token`, `event`, `consent_at` |
 
 `source`: `demo` | `audit_form` | `manual`. `service`: audit, brand, culture, economics, strategy, lab. `stage`: new → contacted → qualified → proposal → won | lost (+ paused).
+
+**Ручной аудит из карточки (2026-11-28).** В карточке лида — блок «Аудит сайта»: поле адреса (подставляется из `site`) и кнопка «Запустить аудит». Дальше `POST /api/audit/manual` (доступ — сессия `/studio`, чужие origin отсекаются) создаёт задачу с `manual: true` и `leadId`, **минуя лимиты устройства, сети и email**: это внутренний инструмент, а не публичная воронка. CRM опрашивает `/api/audit/status` каждые 5 секунд и показывает стадию; по готовности воркер сам вызывает `attachReportToLead` — в `leads.report_token` появляется токен, в контактах карточки — ссылки `/r/<token>/` и `/full/`, в ленте — событие «Отчёт аудита готов». Токен уникален: один отчёт нельзя привязать к двум лидам.
 
 Смена стадии лида и сделки автоматически пишется в `activities` (`kind = stage`) — история не теряется. Дедупликация лидов — по `report_token`: демо-отчёт и последующая форма дают одну запись.
 

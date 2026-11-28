@@ -13,6 +13,7 @@
     currentId: "",
     query: { q: "", status: "", source: "" },
     timer: 0,
+    auditTimer: 0,
   };
 
   const escape = (value) =>
@@ -193,6 +194,12 @@
     $("card-contacts").innerHTML = rows.filter(Boolean).join("");
     $("card-notes").value = lead.notes || "";
 
+    $("audit-url").value = lead.site || "";
+    stopAuditPolling();
+    const auditNote = $("audit-status");
+    auditNote.className = "auditnote";
+    auditNote.textContent = lead.report_token ? "Отчёт готов — ссылки в контактах." : "";
+
     $("card-status").innerHTML = STAGES.map(
       (stage) => `<option value="${stage}"${stage === lead.status ? " selected" : ""}>${stage}</option>`,
     ).join("");
@@ -260,7 +267,71 @@
     }
   }
 
+  // ---------- аудит сайта из карточки ----------
+  const AUDIT_LABEL = {
+    queued: "в очереди",
+    running: "идёт анализ",
+    review: "на проверке",
+    done: "готов",
+    failed: "ошибка",
+    expired: "истёк",
+    manual: "принят вручную",
+  };
+
+  const stopAuditPolling = () => {
+    if (state.auditTimer) clearTimeout(state.auditTimer);
+    state.auditTimer = 0;
+  };
+
+  const pollAudit = async (jobId, leadId) => {
+    if (state.currentId !== leadId) return;
+    try {
+      const data = await api(`/api/audit/status?id=${encodeURIComponent(jobId)}`);
+      const status = data.job?.status || "queued";
+      $("audit-status").textContent = `Аудит: ${AUDIT_LABEL[status] || status}`;
+      if (["done", "failed", "expired"].includes(status)) {
+        if (status === "done") {
+          $("audit-status").className = "auditnote ok";
+          await openLead(leadId); // в карточке появятся ссылки на отчёт
+          await refreshStats();
+          say("Отчёт готов — ссылки в контактах", "ok");
+        } else {
+          $("audit-status").className = "auditnote err";
+        }
+        return;
+      }
+      state.auditTimer = setTimeout(() => pollAudit(jobId, leadId), 5000);
+    } catch (error) {
+      $("audit-status").className = "auditnote err";
+      $("audit-status").textContent = error.message;
+    }
+  };
+
+  $("audit-start").addEventListener("click", async () => {
+    const url = $("audit-url").value.trim();
+    if (!url) {
+      $("audit-status").className = "auditnote err";
+      $("audit-status").textContent = "Укажите сайт.";
+      return;
+    }
+    const leadId = state.currentId;
+    $("audit-start").disabled = true;
+    $("audit-status").className = "auditnote";
+    $("audit-status").textContent = "Запускаем…";
+    try {
+      const data = await api("/api/audit/manual", { method: "POST", body: JSON.stringify({ url, leadId }) });
+      $("audit-status").textContent = `Аудит: ${AUDIT_LABEL[data.job.status] || data.job.status}`;
+      pollAudit(data.job.id, leadId);
+    } catch (error) {
+      $("audit-status").className = "auditnote err";
+      $("audit-status").textContent = error.message;
+    } finally {
+      $("audit-start").disabled = false;
+    }
+  });
+
   $("card-close").addEventListener("click", () => {
+    stopAuditPolling();
     $("card").hidden = true;
     state.currentId = "";
     const closed = new URL(location.href);
