@@ -722,6 +722,21 @@ await check("stub-режим тоже запоминает конкуренто�
   assert(job.competitors[0] === "https://one.example/", `нормализация: ${job.competitors[0]}`);
 });
 
+
+await check("выдача контактов по заявке с конкурентами не падает", async () => {
+  const env = await freshEnv();
+  const id = await readyJob(env);
+  const job = JSON.parse(await env.AUDIT_KV.get(`job:${id}`));
+  job.competitors = ["https://one.example/", "https://two.example/"];
+  await env.AUDIT_KV.put(`job:${id}`, JSON.stringify(job));
+
+  const res = await call(env, "/api/audit/reveal", {
+    method: "POST",
+    body: { id, name: "Иван", email: "comp@example.com", phone: "+79991234567", consent: true },
+  });
+  assert(res.status === 200, `статус ${res.status}`);
+});
+
 globalThis.fetch = realFetch;
 
 console.log(failed === 0 ? "\nвсе проверки прошли" : `\nпровалено: ${failed}`);

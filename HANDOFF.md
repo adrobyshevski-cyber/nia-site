@@ -66,7 +66,7 @@ scripts/build-insights.py       сборка insights из Markdown
 scripts/check-lead.mjs          20 тестов заявок
 scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
-scripts/check-audit.mjs         41 тест /demo
+scripts/check-audit.mjs         42 теста /demo
 scripts/check-crm.mjs           51 тест CRM: напоминания, CSV, события, срок хранения, пагинация
 migrations/0001_init.sql        схема D1: leads, deals, activities
 migrations/0002_reminders.sql   deals.reminded_at + индекс для cron-напоминаний
@@ -152,7 +152,7 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 
 | Заявки | `node scripts/check-lead.mjs` | 20 сценариев: валидация, honeypot, formData без JS, 303 для нативной отправки, www→apex, ошибки каналов |
 | Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
 | Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
-| `/demo` | `node scripts/check-audit.mjs` | 41: URL/телефон, лимиты устройства и IP, квота события, конкуренты (до 2, дубли/свой сайт), маппинг состояний StoryAudit, авто-публикация (вкл/выкл/отказ), архив отчёта, HTML-файл в Telegram, деградация при сбоях |
+| `/demo` | `node scripts/check-audit.mjs` | 42: URL/телефон, лимиты устройства и IP, квота события, конкуренты (до 2, дубли/свой сайт), маппинг состояний StoryAudit, авто-публикация (вкл/выкл/отказ), архив отчёта, HTML-файл в Telegram, деградация при сбоях |
 | CRM | `node scripts/check-crm.mjs` | 51: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
 | Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
