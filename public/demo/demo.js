@@ -95,7 +95,11 @@
       const data = await api("/api/audit/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: raw, ev: new URLSearchParams(location.search).get("ev") || "" }),
+        body: JSON.stringify({
+          url: raw,
+          ev: new URLSearchParams(location.search).get("ev") || "",
+          competitors: [$("competitor-1")?.value || "", $("competitor-2")?.value || ""].filter(Boolean),
+        }),
       });
       jobId = data.job.id;
       startedAt = Date.now();

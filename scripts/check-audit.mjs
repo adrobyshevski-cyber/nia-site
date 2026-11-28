@@ -70,7 +70,8 @@ const service = { state: "analyzing", reportHtml: "", fullHtml: "", pdf: "%PDF-1
 
 const serviceFetch = async (url, init = {}) => {
   const path = new URL(url).pathname;
-  service.calls.push({ path, method: init.method || "GET", headers: init.headers || {} });
+  const form = init.body instanceof FormData ? Object.fromEntries(init.body.entries()) : null;
+  service.calls.push({ path, method: init.method || "GET", headers: init.headers || {}, form });
   if (service.fail) return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
 
   if (path === "/audit" && init.method === "POST") {
@@ -647,6 +648,78 @@ await check("AUDIT_AUTO_PUBLISH не применяется к stub-демо", a
   const res = await (await call(env, `/api/audit/status?id=${job.id}`)).json();
   assert(res.job.status === "done", `статус: ${res.job.status}`);
   assert(!res.job.autoPublishedAt, "stub не должен публиковаться через сервис");
+});
+
+
+console.log("\nконкуренты из /demo");
+
+await check("два конкурента уходят в сервис и сохраняются в задаче", async () => {
+  resetService();
+  const env = liveEnv();
+  const res = await call(env, "/api/audit/start", {
+    method: "POST",
+    body: { url: "https://client.example", competitors: ["https://one.example", "https://two.example"] },
+  });
+  const data = await res.json();
+  assert(res.status === 200 && data.ok, `статус ${res.status} ${JSON.stringify(data)}`);
+
+  const create = service.calls.find((entry) => entry.path === "/audit");
+  assert(create && create.form, "POST /audit без формы");
+  assert(create.form.competitor_1 === "https://one.example/", `competitor_1: ${create.form.competitor_1}`);
+  assert(create.form.competitor_2 === "https://two.example/", `competitor_2: ${create.form.competitor_2}`);
+
+  const job = JSON.parse(await env.AUDIT_KV.get(`job:${data.job.id}`));
+  assert(job.competitors.length === 2, `в задаче: ${JSON.stringify(job.competitors)}`);
+});
+
+await check("третий конкурент, дубль и сам сайт отбрасываются", async () => {
+  resetService();
+  const env = liveEnv();
+  const res = await call(env, "/api/audit/start", {
+    method: "POST",
+    body: {
+      url: "https://client.example",
+      competitors: [
+        "https://www.client.example/", // сам сайт в другой записи
+        "https://one.example",
+        "https://one.example/pricing", // дубль
+        "не url", // мусор
+        "https://two.example",
+        "https://three.example", // третий: не влезает
+      ],
+    },
+  });
+  const data = await res.json();
+  assert(res.status === 200 && data.ok, `статус ${res.status}`);
+
+  const create = service.calls.find((entry) => entry.path === "/audit");
+  assert(create.form.competitor_1 === "https://one.example/", `competitor_1: ${create.form.competitor_1}`);
+  assert(create.form.competitor_2 === "https://two.example/", `competitor_2: ${create.form.competitor_2}`);
+
+  const job = JSON.parse(await env.AUDIT_KV.get(`job:${data.job.id}`));
+  assert(job.competitors.length === 2, `конкурентов в задаче: ${job.competitors.length}`);
+  assert(!job.competitors.some((value) => value.includes("client.example")), "свой сайт попал в конкуренты");
+});
+
+await check("без конкурентов форма уходит без лишних полей", async () => {
+  resetService();
+  const env = liveEnv();
+  await call(env, "/api/audit/start", { method: "POST", body: { url: "https://client.example" } });
+  const create = service.calls.find((entry) => entry.path === "/audit");
+  assert(create.form.competitor_1 === undefined, `competitor_1: ${create.form.competitor_1}`);
+  assert(create.form.competitor_2 === undefined, `competitor_2: ${create.form.competitor_2}`);
+});
+
+await check("stub-режим тоже запоминает конкурентов", async () => {
+  const env = await freshEnv();
+  const res = await call(env, "/api/audit/start", {
+    method: "POST",
+    body: { url: "https://client.example", competitors: ["one.example", "two.example"] },
+  });
+  const data = await res.json();
+  const job = JSON.parse(await env.AUDIT_KV.get(`job:${data.job.id}`));
+  assert(job.competitors.length === 2, `конкуренты: ${JSON.stringify(job.competitors)}`);
+  assert(job.competitors[0] === "https://one.example/", `нормализация: ${job.competitors[0]}`);
 });
 
 globalThis.fetch = realFetch;

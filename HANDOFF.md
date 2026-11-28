@@ -66,7 +66,7 @@ scripts/build-insights.py       сборка insights из Markdown
 scripts/check-lead.mjs          20 тестов заявок
 scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
-scripts/check-audit.mjs         37 тестов /demo
+scripts/check-audit.mjs         41 тест /demo
 scripts/check-crm.mjs           51 тест CRM: напоминания, CSV, события, срок хранения, пагинация
 migrations/0001_init.sql        схема D1: leads, deals, activities
 migrations/0002_reminders.sql   deals.reminded_at + индекс для cron-напоминаний
@@ -152,7 +152,7 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=9c43f65513791f4aaf18522bf44c7d28 
 | Заявки | `node scripts/check-lead.mjs` | 20 сценариев: валидация, honeypot, formData без JS, 303 для нативной отправки, www→apex, ошибки каналов |
 | Студия | `node scripts/check-studio.mjs` | 19: пароль, сессия, Origin, коммиты, отчёт |
 | Импорт статьи | `node scripts/check-import.mjs` | 12: front matter, «паспорт», эвристики, slug, предупреждения |
-| `/demo` | `node scripts/check-audit.mjs` | 37: URL/телефон, лимиты устройства и IP, квота события, маппинг состояний StoryAudit, авто-публикация (вкл/выкл/отказ), архив отчёта, HTML-файл в Telegram, деградация при сбоях |
+| `/demo` | `node scripts/check-audit.mjs` | 41: URL/телефон, лимиты устройства и IP, квота события, конкуренты (до 2, дубли/свой сайт), маппинг состояний StoryAudit, авто-публикация (вкл/выкл/отказ), архив отчёта, HTML-файл в Telegram, деградация при сбоях |
 | CRM | `node scripts/check-crm.mjs` | 51: схема на настоящем SQLite, напоминания (дедуп, сбой Telegram, сброс отметки) (`node:sqlite`), дедуп по `report_token`, поиск/фильтры, сделки, активность стадий, каскад при удалении, 401/403/503/404 API |
 | Статика и SEO | `python scripts/check-links.py` | 200+ ссылок, редиректы, формы, canonical/OG, sitemap ↔ noindex, дубли id |
 | Сборка актуальна | CI: `build-insights.py` + `git diff --quiet -- public` | забыл пересобрать → красный пуш |
@@ -360,7 +360,7 @@ npx wrangler deploy                                     # деплой без CI
 | CRM: напоминания, CSV, сводка по событиям | фаза 2–3, см. раздел 12 |
 | Авто-публикация отчётов для публичных заявок | **готово** 2026-11-27, выключено по умолчанию: `AUDIT_AUTO_PUBLISH=1` + `POST /audit/{token}/publish` в StoryAudit |
 | Дедупликация источников в реестре S01/S02 | **готово** 2026-11-28 (`canonical_host`, 409 `duplicate_source`, `merge_duplicate_sources` + `scripts/dedupe_sources.py`; на проде схлопнуты skillbox.ru и example.com) |
-| Конкурентный раздел: до 2 сайтов из `/demo` | не начато |
+| Конкурентный раздел: до 2 сайтов из `/demo` | **готово** 2026-11-28: поля в `/demo`, `competitor_1/2` в StoryAudit, нормализация на воркере |
 | Категория и география в паспорте отчёта | сервис не выводит их из корпуса |
 | Переезд на VPS (сервис не должен зависеть от домашней сети) | обсуждено, не начато |
 | Resend: доставка отчёта клиенту письмом | по необходимости |
