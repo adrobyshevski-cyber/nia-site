@@ -8,14 +8,14 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-import { handleAudit, handleReport, auditInternals } from "../lib/audit.js";
+import { handleAudit, handleReport, handleLeadAudit, refreshManualAudits, auditInternals } from "../lib/audit.js";
 import { createSessionToken } from "../lib/auth.js";
 
 
 /** Мини-адаптер D1 поверх node:sqlite: нужен, чтобы проверить запись отчёта в CRM. */
 function makeCrmDb() {
   const sqlite = new DatabaseSync(":memory:");
-  for (const name of ["0001_init.sql", "0002_reminders.sql"]) {
+  for (const name of ["0001_init.sql", "0002_reminders.sql", "0003_lead_audit.sql"]) {
     sqlite.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   }
   const leadId = "lead-42";
@@ -78,6 +78,10 @@ function makeKv() {
     },
     async delete(key) {
       store.delete(key);
+    },
+    async list({ prefix = "", limit = 1000 } = {}) {
+      const keys = [...store.keys()].filter((name) => name.startsWith(prefix)).slice(0, limit);
+      return { keys: keys.map((name) => ({ name })), list_complete: true };
     },
   };
 }
@@ -848,6 +852,43 @@ await check("ручной запуск отклоняет плохой адре�
   const cookie = await studioCookie(env);
   const res = await call(env, "/api/audit/manual", { method: "POST", body: { url: "не url" }, cookie });
   assert(res.status === 400, `статус: ${res.status}`);
+});
+
+await check("карточка получает живой статус аудита, а cron догоняет его без браузера", async () => {
+  resetService();
+  service.state = "analyzing";
+  const env = { ...liveEnv(), DB: makeCrmDb() };
+  const cookie = await studioCookie(env);
+
+  const started = await (await call(env, "/api/audit/manual", {
+    method: "POST",
+    body: { url: "https://client.example", leadId: env.DB.leadId },
+    cookie,
+  })).json();
+
+  const cardRequest = new Request(`https://narrativeintelligence.ru/api/crm/leads/${env.DB.leadId}/audit`, {
+    headers: { cookie },
+  });
+  const card = await handleLeadAudit(cardRequest, env, `/api/crm/leads/${env.DB.leadId}/audit`);
+  const cardData = await card.json();
+  assert(card.status === 200 && cardData.job, `карточка: ${card.status} ${JSON.stringify(cardData)}`);
+  assert(cardData.job.status === "running", `статус из сервиса: ${cardData.job.status}`);
+
+  const anonymous = await handleLeadAudit(
+    new Request(`https://narrativeintelligence.ru/api/crm/leads/${env.DB.leadId}/audit`),
+    env,
+    `/api/crm/leads/${env.DB.leadId}/audit`,
+  );
+  assert(anonymous.status === 401, `без сессии: ${anonymous.status}`);
+
+  // сервис досканировал: cron обновляет задачу и привязывает отчёт
+  service.state = "ready";
+  const summary = await refreshManualAudits(env);
+  assert(summary.checked === 1, `проверено: ${summary.checked}`);
+
+  const lead = await env.DB.prepare("SELECT report_token, audit_job FROM leads WHERE id = ?").bind(env.DB.leadId).first();
+  assert(lead.report_token, "cron не привязал отчёт");
+  assert(lead.audit_job === started.job.id, "id задачи изменился");
 });
 
 await check("по готовности отчёт привязывается к лиду", async () => {

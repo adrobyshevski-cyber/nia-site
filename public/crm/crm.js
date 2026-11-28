@@ -188,7 +188,7 @@
       lead.phone ? `<dt>Телефон</dt><dd><a href="tel:${escape(lead.phone.replace(/[^+\d]/g, ""))}">${escape(lead.phone)}</a></dd>` : "",
       lead.site ? `<dt>Сайт</dt><dd>${/^https?:/.test(lead.site) ? `<a href="${escape(lead.site)}" rel="noopener" target="_blank">${escape(lead.site)}</a>` : escape(lead.site)}</dd>` : "",
       lead.event ? `<dt>Событие</dt><dd>${escape(lead.event)}</dd>` : "",
-      lead.report_token ? `<dt>Отчёт</dt><dd><a href="/r/${escape(lead.report_token)}/" rel="noopener" target="_blank">для клиента ↗</a> · <a href="/r/${escape(lead.report_token)}/full/" rel="noopener" target="_blank">полный ↗</a></dd>` : "",
+      lead.report_token ? `<dt>Отчёт</dt><dd><a href="/r/${escape(lead.report_token)}/" rel="noopener" target="_blank">короткий (клиенту) ↗</a><br/><a href="/r/${escape(lead.report_token)}/full/" rel="noopener" target="_blank">полный (17 разделов) ↗</a></dd>` : "",
       lead.consent_at ? `<dt>Согласие</dt><dd>${fmt(lead.consent_at)}</dd>` : `<dt>Согласие</dt><dd class="muted">не зафиксировано</dd>`,
     ];
     $("card-contacts").innerHTML = rows.filter(Boolean).join("");
@@ -199,6 +199,7 @@
     const auditNote = $("audit-status");
     auditNote.className = "auditnote";
     auditNote.textContent = lead.report_token ? "Отчёт готов — ссылки в контактах." : "";
+    resumeAudit(lead.id, Boolean(lead.report_token));
 
     $("card-status").innerHTML = STAGES.map(
       (stage) => `<option value="${stage}"${stage === lead.status ? " selected" : ""}>${stage}</option>`,
@@ -281,6 +282,28 @@
   const stopAuditPolling = () => {
     if (state.auditTimer) clearTimeout(state.auditTimer);
     state.auditTimer = 0;
+  };
+
+  /**
+   * Статус живёт в KV, но обновляется только когда его кто-то спрашивает.
+   * Поэтому при открытии карточки идём в /audit-эндпоинт: он спрашивает сервис
+   * заново, поэтому «в очереди» не залипает после закрытия браузера.
+   */
+  const resumeAudit = async (leadId, hasReport) => {
+    if (hasReport) return;
+    try {
+      const data = await api(`/api/crm/leads/${encodeURIComponent(leadId)}/audit`);
+      if (!data.job) return;
+      const status = data.job.status || "queued";
+      $("audit-status").textContent = `Аудит: ${AUDIT_LABEL[status] || status}`;
+      if (!["done", "failed", "expired"].includes(status)) {
+        state.auditTimer = setTimeout(() => pollAudit(data.job.id, leadId), 5000);
+      } else if (status === "done") {
+        $("audit-status").className = "auditnote ok";
+      }
+    } catch {
+      /* нет аудита — молча */
+    }
   };
 
   const pollAudit = async (jobId, leadId) => {

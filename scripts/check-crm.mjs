@@ -18,6 +18,8 @@ import {
   deleteLead,
   applyRetention,
   attachReportToLead,
+  leadsWithRunningAudit,
+  setLeadAuditJob,
   dueReminders,
   exportDealsCsv,
   exportLeadsCsv,
@@ -81,7 +83,7 @@ function makeD1(sqlite) {
   };
 }
 
-const MIGRATIONS = ["0001_init.sql", "0002_reminders.sql"].map((name) => ({
+const MIGRATIONS = ["0001_init.sql", "0002_reminders.sql", "0003_lead_audit.sql"].map((name) => ({
   name,
   sql: readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"),
 }));
@@ -392,6 +394,34 @@ async function main() {
       garbage = error.message;
     }
     assert(garbage.includes("Сумма"), `нечисловая сумма не отклонена: «${garbage}»`);
+  });
+
+  await check("запущенный аудит запоминается на лиде", async () => {
+    const { db, demo } = await seed();
+    assert((await setLeadAuditJob({ DB: db }, demo, "job-1", { note: "Аудит запущен: https://example.ru/" })) === demo, "не записался");
+
+    const card = await getLead({ DB: db }, demo);
+    assert(card.lead.audit_job === "job-1", `audit_job: ${card.lead.audit_job}`);
+    assert(card.activities.some((act) => /Аудит запущен/.test(act.text)), "нет события о запуске");
+
+    // повторный вызов с тем же id не дублирует событие
+    assert((await setLeadAuditJob({ DB: db }, demo, "job-1")) === null, "ожидали null при повторе");
+    const again = await getLead({ DB: db }, demo);
+    assert(again.activities.length === card.activities.length, "событие продублировалось");
+  });
+
+  await check("cron видит только лиды с аудитом без отчёта", async () => {
+    const { db, demo, form } = await seed();
+    // у demo-лида из сида уже есть report_token: для проверки очереди он не нужен
+    await db.prepare("UPDATE leads SET report_token = NULL WHERE id = ?").bind(demo).run();
+    await setLeadAuditJob({ DB: db }, demo, "job-run");
+    await setLeadAuditJob({ DB: db }, form, "job-done");
+    await attachReportToLead({ DB: db }, form, "tok_done");
+
+    const running = await leadsWithRunningAudit({ DB: db });
+    assert(running.length === 1 && running[0].id === demo, `в очереди: ${JSON.stringify(running)}`);
+    assert(running[0].audit_job === "job-run", "не тот id задачи");
+    assert((await leadsWithRunningAudit({})).length === 0, "без D1 ожидали пустой список");
   });
 
   await check("отчёт аудита привязывается к лиду один раз", async () => {

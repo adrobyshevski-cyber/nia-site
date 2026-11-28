@@ -8,7 +8,7 @@
 
 import { handleLead, json, notifyTelegram } from "./lib/lead.js";
 import { handleStudio } from "./lib/studio.js";
-import { handleAudit, handleReport } from "./lib/audit.js";
+import { handleAudit, handleLeadAudit, refreshManualAudits, handleReport } from "./lib/audit.js";
 import { handleCrm, runReminders, applyRetention } from "./lib/crm.js";
 
 const HSTS = "max-age=15552000"; // 180 дней, без includeSubDomains
@@ -127,6 +127,11 @@ export default {
       return handleAudit(request, env, url.pathname);
     }
 
+    // статус ручного аудита из карточки: сначала этот маршрут, потом общий CRM API
+    if (/^\/api\/crm\/leads\/[^/]+\/audit$/.test(url.pathname)) {
+      return handleLeadAudit(request, env, url.pathname);
+    }
+
     if (url.pathname === "/api/crm" || url.pathname.startsWith("/api/crm/")) {
       return handleCrm(request, env, url.pathname, { notify: (html) => notifyTelegram(env, html) });
     }
@@ -156,6 +161,14 @@ export default {
       console.log("crm reminders", JSON.stringify({ cron: controller?.cron, ...result }));
     } catch (error) {
       console.error("crm reminders failed", String(error?.message || error));
+    }
+
+    // ручные аудиты из CRM: догнать статус, если карточку никто не открывал
+    try {
+      const audits = await refreshManualAudits(env);
+      if (audits.checked) console.log("crm manual audits", JSON.stringify(audits));
+    } catch (error) {
+      console.error("crm manual audits failed", String(error?.message || error));
     }
 
     // срок хранения (152-ФЗ): обезличивание лидов и чистка заметок — раз в сутки, в 03:00 UTC
