@@ -2,13 +2,13 @@
 
 Документ для того, кто продолжит работу: что где лежит, как деплоится, что уже проверено, где грабли. Обновляется при каждом значимом изменении.
 
-- Последнее обновление: **2026-11-27** (CRM фаза 1)
-- Версия Worker'а: `ba4ec5fc`
-- Локальный репозиторий: `C:\work\nia_site`, ветка `main`
-- Сервис аудита: `C:\work\narrative_audit` (StoryAudit), `main` = `b63755b`
+- Последнее обновление: **2026-11-28**
+- Версия Worker'а: `6c00c8a3` (коммит `93d7685`), деплой из CI
+- Локальный репозиторий: `C:\work\nia_site`, ветка `main` = `93d7685`
+- Сервис аудита: `C:\work\narrative_audit` (StoryAudit), `main` = `ae316b4`
 - Ротация `CLOUDFLARE_API_TOKEN`: 2026-11-26 (Roll в dash), предыдущее значение отозвано (`401`)
 
-**CRM фаза 1 включена и задеплоена (раздел 12). Дальше — фаза 2: напоминания по `next_step_at`, CSV, сводка по событиям.**
+**Готово: CRM (фазы 1–3), авто-публикация отчётов, паспорт отчёта, дедупликация источников S01/S02, конкуренты из `/demo`, автозапуск стека со сторожем. Из бэклога осталось: переезд на VPS, Resend, RSS, `.docx` (раздел 13).**
 
 ---
 
@@ -59,7 +59,7 @@ lib/frontmatter.js              разбор и сборка файла стат
 lib/github.js                   GitHub Contents API: чтение, коммит, удаление
 lib/studio.js                   маршруты /studio/*
 
-worker.js                       роутинг + security-заголовки и политика кэша
+worker.js                       роутинг, security-заголовки, политика кэша; scheduled: напоминания CRM, догон ручных аудитов, срок хранения
 wrangler.jsonc                  конфиг Worker'а, ассетов, KV и переменных движка
 
 scripts/build-insights.py       сборка insights из Markdown
@@ -68,8 +68,8 @@ scripts/check-studio.mjs        19 тестов студии
 scripts/check-import.mjs        12 тестов импорта статьи
 scripts/check-audit.mjs         49 тестов /demo
 scripts/check-crm.mjs           54 теста CRM: напоминания, CSV, события, срок хранения, пагинация
-migrations/0001_init.sql        схема D1: leads, deals, activities
-migrations/0002_reminders.sql   deals.reminded_at + индекс для cron-напоминаний
+migrations/*.sql                схема D1: leads (+audit_job), deals (+reminded_at), activities
+                                0002 — reminded_at, 0003 — audit_job (ручной аудит из CRM)
 scripts/check-links.py          ссылки, формы, SEO, дубли id, контракт клиент↔сервер
 scripts/make-og.py              OG-картинки
 scripts/make-icons.py           favicon и иконки
@@ -94,6 +94,10 @@ _archive/                       исходные zip-архивы (в git не �
 После отправки показывается сервисное окно «Заявка отправлена. В ближайшее время с вами свяжутся». Если форма ушла обычным POST (JS не успел подписаться), Worker отвечает `303` на `referer?sent=1` — сырой JSON пользователь не увидит.
 
 План при спаме: перевыпустить ключ Web3Forms → заменить константу в `public/lead.js` → деплой. При постоянном потоке — Resend (серверная отправка, ключ в секретах, Turnstile бесплатно).
+
+Каждая заявка, прошедшая валидацию, **сразу пишется в CRM** (`leads`, источник `audit_form`);
+контакты из `/demo` попадают туда же при выдаче отчёта (источник `demo` + `report_token`).
+Если D1 недоступна, заявка всё равно уходит в Telegram — CRM не блокирует приём.
 
 ## 4. Редакционный процесс
 
@@ -203,18 +207,32 @@ Canonical и OG/Twitter на всех индексируемых страниц�
 | email | 1 отчёт на адрес, 30 дней |
 | событие | 20 аудитов на метку `?ev=` (7 дней); при исчерпании заявка создаётся в статусе `manual` без движка |
 
+Лимиты касаются только публичной воронки. Из карточки лида в `/crm/` аудит запускается
+через `POST /api/audit/manual` (сессия `/studio`) **без** лимитов устройства, сети и email —
+это внутренний инструмент оператора, см. раздел 12.
+
 ### Движок
 
 `AUDIT_ENGINE` в `wrangler.jsonc`: `stub` (отладка воронки, отчёта нет) или `live` + `AUDIT_SERVICE_URL=http://audit…`.
 
-StoryAudit работает **локально** и смотрит наружу через Cloudflare Tunnel:
+StoryAudit работает **на домашнем ПК** и смотрит наружу через Cloudflare Tunnel:
 
 ```
-сервис      powershell -File scripts\start-public.ps1   (в C:\work\narrative_audit)
-туннель     cloudflared tunnel run storyaudit           (protocol: http2, QUIC режется провайдером)
-конфиг      C:\Users\User\.cloudflared\config.yml, tunnel 91b9d5f1-…
-домен       audit.narrativeintelligence.ru → CNAME на туннель
+запуск      scripts\boot.ps1 (супервизор) -> scripts\start-public.ps1
+            PostgreSQL -> alembic -> uvicorn 127.0.0.1:8000 -> app.worker
+туннель     cloudflared 2026.11.2, один коннектор, protocol: http2 (QUIC режется провайдером)
+конфиг      C:\Users\User\.cloudflared\config.yml, tunnel 91b9d5f1-...
+домен       audit.narrativeintelligence.ru -> CF Edge -> туннель -> 127.0.0.1:8000
+сторож      scripts\watchdog.ps1 каждые 45 с: /health/ready, app.worker, cloudflared;
+            лишние коннекторы убивает, упавшее перезапускает (проверено: ~60 с)
+автозапуск  ярлык в папке Startup -> wscript scripts\run-supervisor.vbs -> boot.ps1
+бэкап       ежедневно после 03:30, backups\storyaudit-*.dump, хранение 14 дней
 ```
+
+Ограничение: без прав администратора Планировщик заданий недоступен, поэтому стек
+поднимается **при входе пользователя**, а не при загрузке. Статус/снятие автозапуска —
+`scripts\install-autostart.ps1 -Status` / `-Uninstall`; подробности и грабли — в
+`C:\work\narrative_audit\HANDOFF.md`.
 
 Контракт (реализован в StoryAudit, PR #1–#4):
 
@@ -278,12 +296,18 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 | `cert.pem` не подхватывался | файл скачался в `Downloads` | положить в `C:\Users\User\.cloudflared\cert.pem` |
 | Ссылка на отчёт «не открывается» | фильтрация домена у провайдера, а не ошибка приложения | проверять через edge, отдавать отчёт файлом в Telegram |
 | Отчёт в `review` после скана | публикацию закрывает Stage Gate | подтвердить в `/ui/scans` или включить `AUDIT_AUTO_PUBLISH=1` (воркер зовёт `POST /audit/{token}/publish`) |
+| Аудит «висит в очереди», статус не меняется | воркер сервиса упал (`ObjectDeletedError` при логировании уже удалённой задачи), INGEST остался `pending` | исправлено в StoryAudit `607c6a2`: агент читается до обработки, лог и `fail_job` защищены, итерация цикла обёрнута |
+| Статус аудита в карточке залип на «в очереди» | статус в KV обновляется только тем, кто его опрашивает; закрыл вкладку — обновлять некому | `leads.audit_job` + `GET /api/crm/leads/:id/audit` (спрашивает сервис заново) + cron `*/15` догоняет, в том числе задачи из KV |
+| `pg_ctl.exe` падает с `0xC0000142` | запуск из bash или без консоли | поднимать только через `Start-Process` (так делают `start-public.ps1` и `boot.ps1`) |
+| Локально падают `test_concurrency` / `test_analysis_mode` | живой `app.worker` забирает задачи, созданные тестами в той же БД | `stop-dev.ps1` -> поднять только PostgreSQL -> `pytest` -> `start-public.ps1` |
+| `Register-ScheduledTask` -> «Отказано в доступе» | нет прав администратора (и для S4U, и для Interactive) | автозапуск через папку Startup + процесс-супервизор |
+| Супервизор зависает после первого тика | `... \| Out-File` ждёт всех наследников, а cloudflared живёт вечно | выводить в файл через `*>>`, а не конвейером |
 
 ## 12. CRM — /crm на D1
 
 Пароль один: `/crm` закрыт той же cookie `nia_studio` (`SESSION_SECRET`, `ADMIN_PASSWORD_HASH`). Отдельных ролей нет — решено владельцем.
 
-**Фаза 1 включена, фаза 2 (напоминания) задеплоена.** Код: `lib/crm.js`, `public/crm/`, `migrations/`, `scripts/check-crm.mjs` (40 тестов).
+**Фазы 1–3 включены и проверены на проде.** Код: `lib/crm.js`, `public/crm/`, `migrations/`, `scripts/check-crm.mjs` (54 теста).
 
 ### Включено (2026-11-27)
 
@@ -291,7 +315,7 @@ python scripts/make-qr.py --ev spb-2026 --caption "Narrative Audit · демо"
 |---|---|
 | D1 | `nia-crm`, id `8b00676a-4065-477c-a031-02bfebbbc7bf`, регион EEUR |
 | Биндинг | `DB` в `wrangler.jsonc` |
-| Миграции | `0001_init.sql`, `0002_reminders.sql` применены (`wrangler d1 migrations apply nia-crm --remote`) |
+| Миграции | `0001_init.sql` (лиды/сделки/активности), `0002_reminders.sql` (`reminded_at`), `0003_lead_audit.sql` (`audit_job`); применены через `wrangler d1 migrations apply nia-crm --remote` |
 | Напоминания | cron `*/15 * * * *` в `wrangler.jsonc` → `scheduled` в `worker.js` |
 | Срок хранения | `CRM_RETENTION_DAYS=180`; обезличивание лидов и чистка заметок — в `scheduled` раз в сутки в 03:00 UTC |
 | Токен CI | `CLOUDFLARE_API_TOKEN` в Secrets, права включают deploy с D1 |
@@ -318,9 +342,9 @@ npx wrangler deploy                                     # деплой без CI
 
 | Слой | Где | Что делает |
 |---|---|---|
-| Схема | `migrations/*.sql` | `leads`, `deals` (+`reminded_at`), `activities`, индексы, `report_token UNIQUE` |
-| Данные | `lib/crm.js` | `recordLead`, `listLeads`, `getLead`, `updateLead`, `deleteLead`, `addActivity`, `createDeal`, `updateDeal`, `stats` |
-| API | `lib/crm.js` → `handleCrm` | `GET/POST /api/crm/leads`, `GET/PATCH/DELETE /api/crm/leads/:id`, `POST …/:id/deals`, `POST …/:id/activities`, `PATCH/DELETE /api/crm/deals/:id`, `GET /api/crm/stats`, `GET /api/crm/export.csv?type=leads или type=deals`, `POST /api/crm/reminders/run`, `POST /api/crm/retention/run[?dry=0]`, `GET /api/crm/health`; ручной аудит — `POST /api/audit/manual` (сессия `/studio`) |
+| Схема | `migrations/*.sql` | `leads` (+`audit_job`, `notes`), `deals` (+`reminded_at`, `amount`), `activities`, индексы, `report_token UNIQUE` |
+| Данные | `lib/crm.js` | `recordLead`, `listLeads`, `getLead`, `updateLead`, `deleteLead`, `addActivity`, `createDeal`, `updateDeal`, `stats`, `exportLeadsCsv`, `exportDealsCsv`, `applyRetention`, `dueReminders`, `runReminders`, `setLeadAuditJob`, `attachReportToLead`, `leadsWithRunningAudit` |
+| API | `lib/crm.js` → `handleCrm` | `GET/POST /api/crm/leads`, `GET/PATCH/DELETE /api/crm/leads/:id`, `POST …/:id/deals`, `POST …/:id/activities`, `PATCH/DELETE /api/crm/deals/:id`, `GET /api/crm/stats`, `GET /api/crm/export.csv?type=leads или type=deals`, `POST /api/crm/reminders/run`, `POST /api/crm/retention/run[?dry=0]`, `GET /api/crm/health`; ручной аудит — `POST /api/audit/manual` и `GET /api/crm/leads/:id/audit` (сессия `/studio`) |
 | Экраны | `public/crm/` | вход, сводка, список с поиском и фильтрами, карточка: контакты, **ручной аудит сайта**, отчёт `/r/<token>/`, стадия, сделки, заметки |
 | Автозапись | `lib/lead.js`, `lib/audit.js` | `/api/lead` → `audit_form`; `/api/audit/reveal` → `demo` + `report_token`, `event`, `consent_at` |
 
@@ -343,7 +367,6 @@ npx wrangler deploy                                     # деплой без CI
 - ~~сводка по событиям~~ — **готово 2026-11-27**: `stats.events` (лиды и отчёты по каждой метке `event`), чипы в `/crm/`;
 - ~~срок хранения~~ — **готово 2026-11-27**: `applyRetention` — лиды старше `CRM_RETENTION_DAYS` (180) обезличиваются (имя, email, телефон, заметки, `report_token`), лиды с открытыми сделками остаются, заметки старше срока удаляются; проверить без изменений — чип «срок хранения ⏳» (`POST /api/crm/retention/run?dry=1`);
 - ~~пагинация списка~~ — **готово 2026-11-27**: 50 на страницу, кнопки «Назад/Вперёд», «1–50 из N», сортировка `created_at DESC, id DESC` (одинаковые даты не дублируются между страницами);
-- ручное добавление лида: API `POST /api/crm/leads` есть, в UI — кнопка.
 
 Срок хранения решён: **180 дней**, настраивается переменной `CRM_RETENTION_DAYS` без правки кода. Выбран вариант «обезличивание», не удаление: статистика и воронка по старым лидам сохраняются, персональные данные стираются.
 
@@ -376,6 +399,6 @@ npx wrangler deploy                                     # деплой без CI
 
 Зона `narrativeintelligence.ru` на NS Cloudflare. Custom domains Worker'а привязаны через API (`workers/domains`), а не через `routes` — смена имени Worker'а отвалит домены.
 
-`audit.narrativeintelligence.ru` — CNAME на туннель cloudflared; проксирование выключено (серый щелчок), TLS держит Cloudflare Edge для туннеля.
+`audit.narrativeintelligence.ru` — запись на туннель cloudflared, **трафик идёт через Cloudflare Edge** (публичный резолв отдаёт адреса Cloudflare, `A 104.21.x` / `172.67.x`, TTL 300 — без проксирования туннель не заработал бы). Внутри — `ingress: audit.narrativeintelligence.ru -> http://127.0.0.1:8000`, `protocol: http2`. Токен OAuth у wrangler не имеет прав на чтение DNS-записей (`403` на `/dns_records`), поэтому конфигурация проверена по резолву и по факту работы туннеля.
 
 Почты на домене нет (MX и SPF отсутствуют). Для адреса вида `hi@narrativeintelligence.ru` — включить Cloudflare Email Routing и пересылку на `niaagency@yandex.com`; конфликтов не будет.
